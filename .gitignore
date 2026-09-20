@@ -1,0 +1,8 @@
+# Python
+__pycache__/
+*.pyc
+
+# Copyrighted published paper (INFORMS Interfaces, Avriel et al. 2004).
+# Its own terms restrict use to research/teaching/private study, so it is
+# intentionally not committed to this repository.
+*.pdf
