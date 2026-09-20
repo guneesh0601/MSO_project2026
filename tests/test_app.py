@@ -93,3 +93,25 @@ def test_infeasible_limits_show_message_not_traceback():
     at.run()
     assert not at.exception
     assert any("only one portfolio" in e.value for e in at.error)
+
+
+def test_history_tab_shows_portfolio_and_benchmark_totals():
+    at = _run()
+    assert not at.exception
+    assert _metric(at, "Portfolio, total over window").endswith("%")
+    assert _metric(at, "Benchmark, total over window").endswith("%")
+
+
+def test_current_portfolio_not_summing_to_100_shows_message():
+    at = _run()
+    at.number_input(key="cur_IL_Equity").set_value(30).run()
+    assert not at.exception
+    assert any("100%" in e.value for e in at.error)
+
+
+def test_current_portfolio_summing_to_100_shows_total_change():
+    at = _run()
+    at.number_input(key="cur_Cash").set_value(100).run()
+    assert not at.exception
+    assert not at.error
+    assert _metric(at, "Total change (sum of absolute weight changes)").endswith("%")

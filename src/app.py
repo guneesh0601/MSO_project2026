@@ -202,7 +202,10 @@ frontier = ordered[focus]
 row = frontier.iloc[point - 1]
 rounded = np.array(row["rounded_x"], dtype=float)
 
-tab_options, tab_portfolio = st.tabs(["Risk & return options", "Recommended portfolio"])
+tab_options, tab_portfolio, tab_history, tab_compare = st.tabs([
+    "Risk & return options", "Recommended portfolio",
+    "History vs benchmark", "Compare with current portfolio",
+])
 
 # ---------------------------------------------------------------------------
 # Tab 1: frontier + how the mix changes along it
@@ -322,6 +325,76 @@ with tab_portfolio:
         data=frontier_builder.frontier_to_weight_table(frontier).to_csv(index=False),
         file_name="efficient_frontier.csv", mime="text/csv",
     )
+
+# ---------------------------------------------------------------------------
+# Tab 3: what this portfolio would have done, historically
+# ---------------------------------------------------------------------------
+with tab_history:
+    st.subheader("History vs benchmark")
+    history = engine.portfolio_history(rounded, benchmark)
+    benchmark_label = L.BENCHMARKS[benchmark]
+
+    total_portfolio = history["Portfolio"].iloc[-1] / 100 - 1
+    total_benchmark = history["Benchmark"].iloc[-1] / 100 - 1
+    h_left, h_right = st.columns(2)
+    h_left.metric("Portfolio, total over window", f"{total_portfolio:+.1%}")
+    h_right.metric("Benchmark, total over window", f"{total_benchmark:+.1%}")
+
+    st.line_chart(history.rename(columns={"Benchmark": benchmark_label}))
+    st.caption(f"Growth of 100 invested in {_start:%b %Y}. Historical and in-sample "
+               "(the portfolio was chosen using this same period): not a forecast.")
+
+# ---------------------------------------------------------------------------
+# Tab 4: current vs proposed
+# ---------------------------------------------------------------------------
+with tab_compare:
+    st.subheader("Compare with the customer's current portfolio")
+    st.caption("Enter the current allocation as % of the portfolio; it must total 100%.")
+
+    current = {}
+    input_columns = st.columns(3)
+    for i, asset in enumerate(config.ASSET_NAMES):
+        current[asset] = input_columns[i % 3].number_input(
+            L.ASSETS[asset], min_value=0.0, max_value=100.0, value=0.0, step=1.0,
+            key=f"cur_{asset}",
+        )
+    current_total = sum(current.values())
+
+    if current_total == 0:
+        st.info("Enter the current holdings to compare them with the recommendation.")
+    elif abs(current_total - 100.0) > 0.01:
+        st.error(f"Current weights add up to {current_total:.1f}%; they must total 100%.")
+    else:
+        table = engine.compare_portfolios(
+            [current[a] / 100 for a in config.ASSET_NAMES], rounded
+        )
+        table["asset"] = table["asset"].map(L.ASSETS)
+        long = pd.concat([
+            pd.DataFrame({"asset": table["asset"], "series": "Current",
+                          "weight": table["current"] * 100}),
+            pd.DataFrame({"asset": table["asset"], "series": "Proposed",
+                          "weight": table["proposed"] * 100}),
+        ])
+        st.altair_chart(
+            alt.Chart(long).mark_bar().encode(
+                x=alt.X("asset:N", title=None, axis=alt.Axis(labelAngle=-35)),
+                xOffset="series:N",
+                y=alt.Y("weight:Q", title="Weight (%)"),
+                color=alt.Color("series:N", title=None),
+                tooltip=["asset", "series", alt.Tooltip("weight:Q", format=".0f")],
+            )
+        )
+        st.metric("Total change (sum of absolute weight changes)",
+                  f"{table['trade'].abs().sum() * 100:.0f}%")
+        st.dataframe(
+            pd.DataFrame({
+                "Asset class": table["asset"],
+                "Current": (table["current"] * 100).map(lambda w: f"{w:.0f}%"),
+                "Proposed": (table["proposed"] * 100).map(lambda w: f"{w:.0f}%"),
+                "Change": (table["trade"] * 100).map(lambda w: f"{w:+.0f} pts"),
+            }),
+            hide_index=True,
+        )
 
 st.divider()
 st.caption("Illustrative reproduction built on public proxy data (Yahoo Finance, FRED); "
