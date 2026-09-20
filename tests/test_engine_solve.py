@@ -94,3 +94,57 @@ def test_portfolio_history_single_asset():
     np.testing.assert_allclose(history["Portfolio"].values, expected.values)
     assert list(history.columns) == ["Portfolio", "Benchmark"]
     assert len(history) == config.T_MONTHS
+
+
+# ---------------------------------------------------------------------------
+# Multiple benchmarks (paper p. 41 / p. 47 risk measure 3)
+# ---------------------------------------------------------------------------
+def test_full_weight_on_one_benchmark_matches_the_plain_name():
+    plain = engine.solve_frontier("symmetric", "CPI", 0.55)
+    weighted = engine.solve_frontier("symmetric", {"CPI": 1.0}, 0.55)
+    np.testing.assert_allclose(plain["risk"], weighted["risk"])
+    np.testing.assert_allclose(np.vstack(plain["x"]), np.vstack(weighted["x"]))
+
+
+def test_benchmark_series_is_the_weighted_sum():
+    table = engine.load_inputs()["bch_table"]
+    expected = 0.6 * table["CPI"].values + 0.4 * table["USD"].values
+    np.testing.assert_allclose(engine.benchmark_series({"CPI": 0.6, "USD": 0.4}), expected)
+    # a tuple of pairs (hashable, used as the UI's cache key) means the same thing
+    np.testing.assert_allclose(engine.benchmark_series((("CPI", 0.6), ("USD", 0.4))), expected)
+
+
+def test_benchmark_series_single_name_is_the_column():
+    table = engine.load_inputs()["bch_table"]
+    np.testing.assert_allclose(engine.benchmark_series("EUR"), table["EUR"].values)
+
+
+@pytest.mark.parametrize("bad", [
+    {"CPI": 0.5, "USD": 0.4},        # totals 90%
+    {"CPI": 1.2, "USD": -0.2},       # negative weight
+    {"NOPE": 1.0},                   # unknown benchmark
+    {},                              # nothing chosen
+])
+def test_invalid_benchmark_weights_are_rejected(bad):
+    with pytest.raises(ValueError):
+        engine.benchmark_series(bad)
+
+
+def test_blended_benchmark_changes_the_symmetric_frontier():
+    single = engine.solve_frontier("symmetric", "CPI", 0.55)
+    blend = engine.solve_frontier("symmetric", {"CPI": 0.5, "USD": 0.5}, 0.55)
+    assert not np.allclose(single["risk"].values, blend["risk"].values)
+
+
+def test_markowitz_ignores_the_benchmark():
+    a = engine.solve_frontier("markowitz", "CPI", 0.55)
+    b = engine.solve_frontier("markowitz", "USD", 0.55)
+    np.testing.assert_allclose(a["risk"].values, b["risk"].values)
+
+
+def test_portfolio_history_uses_the_blended_benchmark():
+    x = np.full(config.N_ASSETS, 1.0 / config.N_ASSETS)
+    history = engine.portfolio_history(x, {"CPI": 0.5, "USD": 0.5})
+    table = engine.load_inputs()["bch_table"]
+    blended = 0.5 * table["CPI"].values + 0.5 * table["USD"].values
+    np.testing.assert_allclose(history["Benchmark"].values, 100.0 * np.cumprod(1.0 + blended))

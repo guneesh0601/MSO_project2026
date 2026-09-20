@@ -95,17 +95,46 @@ def data_window() -> tuple[pd.Timestamp, pd.Timestamp]:
 # ---------------------------------------------------------------------------
 # Solving
 # ---------------------------------------------------------------------------
-MIN_RETURN_SPREAD = 1e-6   # below this the "frontier" is a single portfolio
+MIN_RETURN_SPREAD = 1e-6        # below this the "frontier" is a single portfolio
+BENCHMARK_WEIGHT_TOLERANCE = 1e-6
 
 
-def solve_frontier(risk_measure: str, benchmark: str, equity_cap: float,
+def benchmark_series(benchmark) -> np.ndarray:
+    """Monthly benchmark returns (BchRet_t) for one benchmark or a blend.
+
+    `benchmark` is either a name from config.BENCHMARKS (returns that column) or
+    a weight map {name: fraction} (a mapping, or an iterable of (name, weight)
+    pairs), returning the fixed-weight sum of the chosen columns -- the paper's
+    "weighted average of several benchmarks" (p. 47, risk measure 3). Weights
+    must be non-negative and total 1.
+    """
+    table = load_inputs()["bch_table"]
+    if isinstance(benchmark, str):
+        return table[benchmark].values
+
+    weights = dict(benchmark)
+    if not weights:
+        raise ValueError("Choose at least one benchmark.")
+    unknown = [name for name in weights if name not in table.columns]
+    if unknown:
+        raise ValueError(f"Unknown benchmark(s): {unknown}")
+    if any(w < 0 for w in weights.values()):
+        raise ValueError("Benchmark weights must not be negative.")
+    total = sum(weights.values())
+    if abs(total - 1.0) > BENCHMARK_WEIGHT_TOLERANCE:
+        raise ValueError(f"Benchmark weights must total 100% (got {total:.1%}).")
+    return sum(table[name].values * w for name, w in weights.items())
+
+
+def solve_frontier(risk_measure: str, benchmark, equity_cap: float,
                    liquidity_cap: float = None, currency_cap: float = None,
                    gamma: float = None, lambda_decay: float = None, K: int = None,
                    profile_id: str = "custom") -> pd.DataFrame:
     """Build one efficient frontier for one customer profile.
 
     Caps are fractions (0.55 = 55%). Any argument left as None takes its
-    config.py default. Raises InfeasibleProfileError when the limits leave
+    config.py default. `benchmark` is a name or a {name: weight} blend (see
+    benchmark_series). Raises InfeasibleProfileError when the limits leave
     no room for more than one portfolio.
     """
     inputs = load_inputs()
@@ -132,7 +161,7 @@ def solve_frontier(risk_measure: str, benchmark: str, equity_cap: float,
     try:
         frontier = frontier_builder.build_frontier(
             risk_measure, profile, inputs["r_table"].values,
-            inputs["bch_table"][benchmark].values, weights,
+            benchmark_series(benchmark), weights,
             inputs["market_w"], inputs["rho"].values, gamma=gamma, K=K,
         )
     except ValueError as exc:
@@ -178,15 +207,16 @@ def compare_portfolios(current, proposed) -> pd.DataFrame:
     })
 
 
-def portfolio_history(x, benchmark: str) -> pd.DataFrame:
+def portfolio_history(x, benchmark) -> pd.DataFrame:
     """Growth of 100 invested at the start of the 36-month window, for the
-    portfolio and for the benchmark. Historical and in-sample."""
+    portfolio and for the benchmark (a name or a {name: weight} blend).
+    Historical and in-sample."""
     inputs = load_inputs()
     portfolio = inputs["r_table"].values @ np.asarray(x, dtype=float)
     return pd.DataFrame(
         {
             "Portfolio": 100.0 * np.cumprod(1.0 + portfolio),
-            "Benchmark": 100.0 * np.cumprod(1.0 + inputs["bch_table"][benchmark].values),
+            "Benchmark": 100.0 * np.cumprod(1.0 + benchmark_series(benchmark)),
         },
         index=inputs["r_table"].index,
     )
