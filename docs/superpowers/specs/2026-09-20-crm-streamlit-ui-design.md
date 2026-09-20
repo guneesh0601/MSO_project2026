@@ -120,3 +120,26 @@ dependency, 4 benchmarks).
 
 Adds `streamlit` (Altair ships with it; no separate charting dependency). Installed versions when built:
 Streamlit 1.64.0, Altair 6.3.0. Also `pytest` (dev only, for tests).
+
+## Addendum: multiple benchmarks (paper p. 41, p. 47 measure (3))
+
+The paper says "Customers can choose multiple investment objectives and benchmarks, and the system's results
+will be weighted accordingly" (p. 41) and lists "return variability around more than one benchmark ... a
+weighted average of several benchmarks" as risk measure (3) (p. 47). It does not say how the weights are set;
+we let the CRM enter them. Multiple *objectives* are out of scope (objectives are not modeled).
+
+- **Engine:** `solve_frontier(..., benchmark, ...)` and `portfolio_history(x, benchmark)` accept either a
+  benchmark name (unchanged) or a weight map `{name: fraction}`. New `engine.benchmark_series(benchmark)`
+  returns the monthly benchmark return series: the column for a name, or the fixed-weight sum of the chosen
+  columns. It raises `ValueError` for an empty map, unknown names, negative weights, or weights that do not
+  total 1 (tolerance 1e-6). Assumption: the blend is a fixed-weight average of monthly benchmark returns.
+- **UI:** the benchmark dropdown becomes a multiselect (default CPI). With one benchmark selected the weight
+  is implicitly 100%. With two or more, each gets a 0-100 slider; changing the selection resets the weights to
+  an equal split (50/50, 34/33/33, ...) which the CRM can then edit. Weights not totalling 100% show a message
+  and no charts. Header and history chart label the blend (e.g. "60% CPI + 40% USD/ILS"). Reset and the
+  "modified" tag cover the new controls. The classical Markowitz measure ignores the benchmark entirely
+  (existing behaviour); the sidebar says so.
+- **Unchanged:** batch pipeline and the 20 saved single-benchmark profiles; no outputs regenerate.
+- **Tests:** `{CPI: 1.0}` reproduces the plain CPI frontier; the blend equals a hand-computed weighted sum;
+  invalid weights raise; a blend changes the symmetric frontier; Markowitz is benchmark-independent; UI tests
+  for equal-split reset, the not-100% message, a valid two-benchmark blend, and reset.
