@@ -56,6 +56,7 @@ BENCHMARKS = {
     "CPI":       {"source": "fred",     "id": "ISRCPIALLMINMEI"},
     "USD":       {"source": "yfinance", "id": "USDILS=X"},
     "ILS_RATE":  {"source": "fred",     "id": "IR3TIB01ILM156N"},
+    "EUR":       {"source": "yfinance", "id": "EURILS=X"},
 }
 
 # FRED series used to approximate Israeli government bond returns via duration
@@ -100,7 +101,7 @@ CURRENCY_CAP_DEFAULT = 1.00    # max combined weight allowed in foreign-currency
 TURNOVER_CAP_DEFAULT = None    # None = no turnover constraint applied by default
 
 RISK_MEASURES = ["symmetric", "asymmetric", "markowitz"]
-BENCHMARK_CHOICES = ["CPI", "USD", "ILS_RATE"]
+BENCHMARK_CHOICES = ["CPI", "USD", "ILS_RATE", "EUR"]
 RISK_LEVEL_CHOICES = list(RISK_CATEGORY_EQUITY_CAP.keys())
 
 # ---------------------------------------------------------------------------

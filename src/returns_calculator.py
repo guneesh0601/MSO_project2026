@@ -102,7 +102,7 @@ def build_benchmark_returns() -> pd.DataFrame:
 
     for name, spec in config.BENCHMARKS.items():
         raw = data_loader.load_raw_series(f"BCH_{name}")
-        if name in ("CPI", "USD"):
+        if name in ("CPI", "USD", "EUR"):
             columns[name] = simple_return(raw)
         elif name == "ILS_RATE":
             columns[name] = rate_to_monthly_return(raw)
