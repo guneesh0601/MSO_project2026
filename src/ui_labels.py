@@ -18,6 +18,14 @@ BENCHMARKS = {
     "EUR":      "EUR/ILS exchange rate",
 }
 
+# Short forms, used to label a blend such as "60% CPI + 40% USD/ILS".
+BENCHMARKS_SHORT = {
+    "CPI":      "CPI",
+    "USD":      "USD/ILS",
+    "ILS_RATE": "BoI rate",
+    "EUR":      "EUR/ILS",
+}
+
 RISK_LEVELS = {
     "low":           "Low",
     "low_medium":    "Low-medium",

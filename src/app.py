@@ -40,7 +40,7 @@ CURRENCY_STOPS = [round(v * 100) for v in config.CURRENCY_LEVELS]
 DEFAULTS = {
     "risk_level": DEFAULT_RISK_LEVEL,
     "equity_cap": round(config.RISK_CATEGORY_EQUITY_CAP[DEFAULT_RISK_LEVEL] * 100),
-    "benchmark": DEFAULT_BENCHMARK,
+    "benchmarks": [DEFAULT_BENCHMARK],
     "risk_measures": list(config.RISK_MEASURES),
     "liquidity_cap": round(config.LIQUIDITY_CAP_DEFAULT * 100),
     "currency_cap": round(config.CURRENCY_CAP_DEFAULT * 100),
@@ -48,6 +48,10 @@ DEFAULTS = {
     "lambda_decay": config.LAMBDA_DECAY,
     "K": config.K_FRONTIER_POINTS,
 }
+
+# One weight (% of the benchmark blend) per benchmark; only used when 2+ are selected.
+DEFAULTS.update({f"bw_{name}": (100 if name == DEFAULT_BENCHMARK else 0)
+                 for name in config.BENCHMARK_CHOICES})
 
 for _key, _value in DEFAULTS.items():
     st.session_state.setdefault(_key, list(_value) if isinstance(_value, list) else _value)
@@ -57,6 +61,25 @@ def _apply_preset():
     """Selecting a risk level pre-fills the equity slider with that level's default."""
     level = st.session_state["risk_level"]
     st.session_state["equity_cap"] = round(config.RISK_CATEGORY_EQUITY_CAP[level] * 100)
+
+
+def _equalize_benchmark_weights():
+    """Changing the benchmark selection resets the weights to an even split
+    (50/50, 34/33/33, ...), which the CRM can then edit."""
+    chosen = st.session_state["benchmarks"]
+    for name in config.BENCHMARK_CHOICES:
+        st.session_state[f"bw_{name}"] = 0
+    if chosen:
+        base, extra = divmod(100, len(chosen))
+        for i, name in enumerate(chosen):
+            st.session_state[f"bw_{name}"] = base + (1 if i < extra else 0)
+
+
+def _benchmark_label(benchmark) -> str:
+    """'Israeli CPI (inflation)' for one benchmark, '60% CPI + 40% USD/ILS' for a blend."""
+    if isinstance(benchmark, str):
+        return L.BENCHMARKS[benchmark]
+    return " + ".join(f"{round(w * 100)}% {L.BENCHMARKS_SHORT[n]}" for n, w in benchmark.items())
 
 
 def _reset():
@@ -77,8 +100,10 @@ def _prepare_data():
 
 
 @st.cache_data(show_spinner="Optimizing portfolios...")
-def _solve(risk_measure, benchmark, equity_cap, liquidity_cap, currency_cap,
+def _solve(risk_measure, benchmark_key, equity_cap, liquidity_cap, currency_cap,
            gamma, lambda_decay, K):
+    # benchmark_key is a name, or a hashable tuple of (name, weight) pairs for a blend.
+    benchmark = benchmark_key if isinstance(benchmark_key, str) else dict(benchmark_key)
     return engine.solve_frontier(
         risk_measure, benchmark, equity_cap, liquidity_cap, currency_cap,
         gamma, lambda_decay, K,
@@ -103,12 +128,21 @@ with st.sidebar:
               help="Preset by the risk level; drag to fine-tune to any whole percentage.")
     _tag("equity_cap")
 
-    st.selectbox("Benchmark", list(config.BENCHMARK_CHOICES), key="benchmark",
-                 format_func=L.BENCHMARKS.get)
-    _tag("benchmark")
+    st.multiselect("Benchmark(s)", list(config.BENCHMARK_CHOICES), key="benchmarks",
+                   format_func=L.BENCHMARKS.get, on_change=_equalize_benchmark_weights,
+                   help="Pick one, or several to track a weighted blend, as in the paper.")
+    _tag("benchmarks")
+    _chosen = st.session_state["benchmarks"]
+    if len(_chosen) > 1:
+        for _name in _chosen:
+            st.slider(f"Weight: {L.BENCHMARKS_SHORT[_name]} (%)", 0, 100, key=f"bw_{_name}")
+        _weights_total = sum(st.session_state[f"bw_{n}"] for n in _chosen)
+        st.caption(f"Weights total {_weights_total}%"
+                   + ("" if _weights_total == 100 else " (must be 100%)"))
 
     st.multiselect("Risk measures to compare", list(config.RISK_MEASURES),
-                   key="risk_measures", format_func=L.RISK_MEASURES.get)
+                   key="risk_measures", format_func=L.RISK_MEASURES.get,
+                   help="Classical volatility (Markowitz) does not use the benchmark.")
     _tag("risk_measures")
 
     st.select_slider("Maximum illiquid assets", options=LIQUIDITY_STOPS,
@@ -148,7 +182,22 @@ if not measures:
     st.info("Select at least one risk measure in the sidebar.")
     st.stop()
 
-benchmark = st.session_state["benchmark"]
+chosen_benchmarks = st.session_state["benchmarks"]
+if not chosen_benchmarks:
+    st.info("Select at least one benchmark in the sidebar.")
+    st.stop()
+
+if len(chosen_benchmarks) == 1:
+    benchmark = benchmark_key = chosen_benchmarks[0]
+else:
+    weights_pct = {n: st.session_state[f"bw_{n}"] for n in chosen_benchmarks}
+    weights_total = sum(weights_pct.values())
+    if weights_total != 100:
+        st.error(f"Benchmark weights add up to {weights_total}%; they must total 100%.")
+        st.stop()
+    benchmark = {n: w / 100 for n, w in weights_pct.items() if w > 0}
+    benchmark_key = tuple(sorted(benchmark.items()))
+
 equity_cap = st.session_state["equity_cap"] / 100
 liquidity_cap = st.session_state["liquidity_cap"] / 100
 currency_cap = st.session_state["currency_cap"] / 100
@@ -157,7 +206,7 @@ frontiers = {}
 try:
     for _measure in measures:
         frontiers[_measure] = _solve(
-            _measure, benchmark, equity_cap, liquidity_cap, currency_cap,
+            _measure, benchmark_key, equity_cap, liquidity_cap, currency_cap,
             st.session_state["gamma"], st.session_state["lambda_decay"],
             st.session_state["K"],
         )
@@ -185,7 +234,7 @@ st.caption(f"Market data window: {_start:%b %Y} to {_end:%b %Y} "
            f"(last {config.T_MONTHS} months of common data)")
 st.markdown(
     f"**Risk level:** {L.RISK_LEVELS[st.session_state['risk_level']]} · "
-    f"**Benchmark:** {L.BENCHMARKS[benchmark]} · "
+    f"**Benchmark:** {_benchmark_label(benchmark)} · "
     f"**Limits:** equity {equity_cap:.0%}, illiquid {liquidity_cap:.0%}, "
     f"foreign currency {currency_cap:.0%}"
 )
@@ -341,7 +390,7 @@ with tab_portfolio:
 with tab_history:
     st.subheader("History vs benchmark")
     history = engine.portfolio_history(rounded, benchmark)
-    benchmark_label = L.BENCHMARKS[benchmark]
+    benchmark_label = _benchmark_label(benchmark)
 
     total_portfolio = history["Portfolio"].iloc[-1] / 100 - 1
     total_benchmark = history["Benchmark"].iloc[-1] / 100 - 1

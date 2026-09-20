@@ -26,6 +26,7 @@ def _metric(at: AppTest, label: str) -> str:
 def test_labels_cover_every_config_key():
     assert set(ui_labels.ASSETS) == set(config.ASSET_NAMES)
     assert set(ui_labels.BENCHMARKS) == set(config.BENCHMARK_CHOICES)
+    assert set(ui_labels.BENCHMARKS_SHORT) == set(config.BENCHMARK_CHOICES)
     assert set(ui_labels.RISK_LEVELS) == set(config.RISK_LEVEL_CHOICES)
     assert set(ui_labels.RISK_MEASURES) == set(config.RISK_MEASURES)
 
@@ -42,7 +43,7 @@ def test_app_loads_with_config_defaults():
     assert at.slider(key="equity_cap").value == 55      # 'medium' preset
     assert at.select_slider(key="liquidity_cap").value == 40
     assert at.select_slider(key="currency_cap").value == 100
-    assert at.selectbox(key="benchmark").value == "CPI"
+    assert at.multiselect(key="benchmarks").value == ["CPI"]
     assert at.multiselect(key="risk_measures").value == list(config.RISK_MEASURES)
 
 
@@ -115,3 +116,71 @@ def test_current_portfolio_summing_to_100_shows_total_change():
     assert not at.exception
     assert not at.error
     assert _metric(at, "Total change (sum of absolute weight changes)").endswith("%")
+
+
+# ---------------------------------------------------------------------------
+# Multiple benchmarks with weights (paper p. 41)
+# ---------------------------------------------------------------------------
+def _has_text(at: AppTest, needle: str) -> bool:
+    return any(needle in m.value for m in at.markdown)
+
+
+def _weight_sliders(at: AppTest) -> list:
+    # the 'Risk appetite' slider has no key, so guard against None
+    return [s for s in at.slider if (s.key or "").startswith("bw_")]
+
+
+def test_single_benchmark_shows_no_weight_sliders():
+    at = _run()
+    assert not at.exception
+    assert not _weight_sliders(at)
+
+
+def test_second_benchmark_appears_with_an_equal_split():
+    at = _run()
+    at.multiselect(key="benchmarks").set_value(["CPI", "USD"]).run()
+    assert not at.exception
+    assert at.slider(key="bw_CPI").value == 50
+    assert at.slider(key="bw_USD").value == 50
+
+
+def test_three_benchmarks_split_34_33_33():
+    at = _run()
+    at.multiselect(key="benchmarks").set_value(["CPI", "USD", "EUR"]).run()
+    assert not at.exception
+    assert [at.slider(key=f"bw_{n}").value for n in ("CPI", "USD", "EUR")] == [34, 33, 33]
+
+
+def test_weights_not_totalling_100_show_message_not_charts():
+    at = _run()
+    at.multiselect(key="benchmarks").set_value(["CPI", "USD"]).run()
+    at.slider(key="bw_CPI").set_value(70).run()
+    assert not at.exception
+    assert any("100%" in e.value for e in at.error)
+    assert not at.metric          # nothing was solved or drawn
+
+
+def test_valid_blend_solves_and_is_labelled():
+    at = _run()
+    at.multiselect(key="benchmarks").set_value(["CPI", "USD"]).run()
+    at.slider(key="bw_CPI").set_value(60).run()
+    at.slider(key="bw_USD").set_value(40).run()
+    assert not at.exception
+    assert not at.error
+    assert _has_text(at, "60% CPI + 40% USD/ILS")
+
+
+def test_no_benchmark_selected_shows_a_prompt():
+    at = _run()
+    at.multiselect(key="benchmarks").set_value([]).run()
+    assert not at.exception
+    assert any("at least one benchmark" in i.value for i in at.info)
+
+
+def test_reset_restores_the_single_default_benchmark():
+    at = _run()
+    at.multiselect(key="benchmarks").set_value(["CPI", "USD"]).run()
+    at.button(key="reset").click().run()
+    assert not at.exception
+    assert at.multiselect(key="benchmarks").value == ["CPI"]
+    assert not _weight_sliders(at)
