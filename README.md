@@ -9,8 +9,10 @@ This is the working reproduction of the Opti-Money model from the Avriel et al. 
 Open a terminal in the `MSO project` folder and install the required libraries:
 
 ```
-pip install numpy pandas scipy yfinance pandas_datareader matplotlib
+pip install numpy pandas scipy yfinance pandas_datareader matplotlib streamlit
 ```
+
+To run the tests you also need pytest (`pip install pytest`).
 
 You need an internet connection the first time you run the pipeline (it downloads real market data from Yahoo Finance and FRED). After that first run, the data is saved locally and it won't need the internet again unless you delete the `data/` folder.
 
@@ -25,12 +27,22 @@ That single command does all of this automatically, in order:
 1. Downloads the raw price/rate data (skipped if already downloaded).
 2. Builds the historical returns table and benchmark series.
 3. Builds the return forecasts.
-4. Builds the 15 customer profiles.
-5. Solves all 45 efficient frontiers (15 profiles x 3 risk measures), 540 individual optimizations total.
+4. Builds the 20 customer profiles (5 risk levels x 4 benchmarks: CPI, USD, Bank of Israel rate, Euro).
+5. Solves all 60 efficient frontiers (20 profiles x 3 risk measures), 720 individual optimizations total.
 6. Rounds every portfolio to clean percentages.
 7. Saves all results as CSV files and PNG charts.
 
 It takes about 4 seconds to run once the data is downloaded. You'll see a progress line print after each customer profile finishes.
+
+## 2b. Interactive CRM dashboard
+
+For a relationship-manager view with live controls and graphs:
+
+```
+streamlit run src/app.py
+```
+
+It opens in your browser (usually http://localhost:8501). Pick a risk level (this pre-fills the equity-cap slider, which you can then drag to any whole percentage), a benchmark, and the liquidity/currency limits. The risk level and the liquidity/currency limits are discrete, as in the paper's questionnaire: their sliders snap to the nearest allowed level (edit `LIQUIDITY_LEVELS` / `CURRENCY_LEVELS` in `src/config.py` to change the levels). The efficient frontier and recommended portfolio update immediately. Every control starts at its `src/config.py` default and only changes when you change it; "Reset to defaults" restores them. Tabs: risk/return options, recommended portfolio, history vs benchmark, and a comparison with the customer's current portfolio. Nothing you type is saved.
 
 ## 3. Where to find the results
 
@@ -41,9 +53,10 @@ It takes about 4 seconds to run once the data is downloaded. You'll see a progre
 
 ```
 python tests/test_toy_example.py
+python -m pytest tests -v
 ```
 
-This re-runs the small hand-checkable sanity tests and should print "All toy-example tests passed."
+The first re-runs the small hand-checkable sanity tests and should print "All toy-example tests passed." The second runs the full suite, including the engine and dashboard tests.
 
 ## 5. Re-running with fresh data or different settings
 

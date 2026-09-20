@@ -57,9 +57,13 @@ The UI never mutates `config` globals. `gamma`, `K` and `lambda_decay` are passe
 
 **Main area — tabs:**
 1. **Risk & return options.** Efficient frontier chart (risk vs expected annual return, one line per risk
-   measure, hover tooltips). A "Conservative <-> Growth" selector picks a frontier point; the point is
-   highlighted on the chart. Also a stacked-area chart of asset weights across the frontier
-   ("how the mix changes as you take more risk").
+   measure, hover tooltips). The selected frontier point is highlighted on the chart. Also a stacked-area
+   chart of asset weights across the frontier ("how the mix changes as you take more risk"). Risk is shown
+   as annualized risk = sqrt(12 x monthly risk score), a monotonic display transform that puts the three
+   measures on one axis.
+
+   The risk-measure radio and the "Risk appetite" slider (1 = most conservative ... highest = most growth)
+   that choose the frontier point sit **above the tabs**, because tabs 2-4 all depend on them.
 2. **Recommended portfolio.** For the selected point and risk measure: allocation donut, weights table
    (rounded to 1%), expected return and risk figures, and constraint-usage bars (equity / foreign-currency /
    illiquid share vs the customer's caps). Download buttons for the portfolio and the full frontier as CSV.
@@ -70,7 +74,8 @@ The UI never mutates `config` globals. `gamma`, `K` and `lambda_decay` are passe
 
 **Footer:** "Illustrative reproduction built on public proxy data (Yahoo Finance, FRED); not investment advice."
 
-Display labels (friendly asset/benchmark/risk-level names) live in `app.py`; `config.py` keeps model identifiers only.
+Display labels (friendly asset/benchmark/risk-level/risk-measure names) live in `src/ui_labels.py`, a small
+module importable by tests; `config.py` keeps model identifiers only.
 
 ## Data flow
 
@@ -85,7 +90,8 @@ Sidebar values -> `engine.solve_frontier` (one call per selected risk measure, a
 - Points with `success == False`: warning banner, as the batch run does today.
 - Current-portfolio weights not summing to 100%: inline validation, comparison not drawn.
 - Missing data files: `ensure_data()` downloads them on first launch with a visible spinner; a download
-  failure shows an error with the failing series name.
+  failure shows an error containing the download error text (the loader's message reports how many series
+  failed, and its log names them).
 
 ## Euro benchmark and data check
 
@@ -112,4 +118,5 @@ dependency, 4 benchmarks).
 
 ## Dependencies
 
-Adds `streamlit` (Altair ships with it; no separate charting dependency). Not currently installed.
+Adds `streamlit` (Altair ships with it; no separate charting dependency). Installed versions when built:
+Streamlit 1.64.0, Altair 6.3.0. Also `pytest` (dev only, for tests).
