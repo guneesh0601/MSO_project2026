@@ -28,7 +28,7 @@ Also: the hardcoded `RISK_CATEGORY_EQUITY_CAP` becomes an interactive slider, an
 | `src/engine.py` (new) | `ensure_data()` (moved from `main.py`, plus the benchmark-completeness check) and `solve_frontier(risk_measure, benchmark, equity_cap, liquidity_cap, currency_cap, gamma, lambda_decay, K)`. Builds one profile dict, calls the existing `build_frontier`, adds `rounded_x`. Also `portfolio_history(x, benchmark)` (cumulative growth series). | existing modules |
 | `src/app.py` (new) | Streamlit UI only; no optimization logic. Run with `streamlit run src/app.py`. | `engine`, `config`, streamlit, altair |
 | `src/main.py` | Batch run now calls `engine`, so batch and UI share one code path. | `engine` |
-| `src/config.py` | Add `"EUR": {"source": "yfinance", "id": "EURILS=X"}` to `BENCHMARKS`; add `"EUR"` to `BENCHMARK_CHOICES`. No new model constants: every UI default is an existing config constant. | — |
+| `src/config.py` | Add `"EUR": {"source": "yfinance", "id": "EURILS=X"}` to `BENCHMARKS`; add `"EUR"` to `BENCHMARK_CHOICES`; add `LIQUIDITY_LEVELS` and `CURRENCY_LEVELS` (allowed stops for the discrete sliders). Every UI default is still an existing config constant. | — |
 | `src/returns_calculator.py` | `build_benchmark_returns`: treat `EUR` like `CPI`/`USD` (price series -> `simple_return`). | — |
 
 The UI never mutates `config` globals. `gamma`, `K` and `lambda_decay` are passed as arguments
@@ -40,11 +40,17 @@ The UI never mutates `config` globals. `gamma`, `K` and `lambda_decay` are passe
 (risk level, benchmark, equity/foreign/illiquid caps).
 
 **Sidebar — "Customer profile":**
-- Risk level dropdown (low ... high). Selecting one sets the equity-cap slider to that
-  category's preset from `RISK_CATEGORY_EQUITY_CAP`; the CRM may then drag it to any value (0-100%).
+- Risk level: a 5-stop snapping slider (low ... high). Selecting one sets the equity-cap slider to that
+  category's preset from `RISK_CATEGORY_EQUITY_CAP`; the CRM may then drag the equity slider to any whole
+  percentage (0-100%) as a fine-tuning override.
 - Benchmark dropdown: Israeli CPI, USD/ILS, Bank of Israel rate (3M interbank proxy), EUR/ILS.
 - Risk measure(s): multiselect, all three by default (symmetric, asymmetric downside, classical Markowitz).
-- Liquidity cap and currency cap sliders.
+- Liquidity cap and currency cap: snapping sliders over a few discrete levels, as in the paper's customer
+  questionnaire ("a few discrete levels"; the paper gives no numbers). The stops are new config lists,
+  `LIQUIDITY_LEVELS = [0, 20, 40, 60, 100]%` and `CURRENCY_LEVELS = [0, 25, 50, 75, 100]%`, a documented
+  assumption like the category equity caps; each contains its existing default (40% and 100%).
+- Discrete controls use `st.select_slider`, so releasing the handle between stops lands on the nearest stop.
+  Continuous-by-nature controls (equity override, lambda, K, frontier position) use stepped sliders.
 - Every control starts at its config default. A control that differs from its default shows a
   "modified" tag; the solver uses current values (defaults where untouched). "Reset to defaults" button.
 - Collapsed "Analyst settings": gamma (tracking penalty), lambda (recency decay), K (frontier points).

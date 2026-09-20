@@ -17,6 +17,7 @@
 - Nothing the CRM types is persisted; no files are written by the UI (downloads are browser downloads only).
 - The UI must not mutate `config` globals. `gamma`, `K`, `lambda_decay` are passed as function arguments.
 - Every UI default comes from an existing `config.py` constant (`RISK_CATEGORY_EQUITY_CAP`, `LIQUIDITY_CAP_DEFAULT`, `CURRENCY_CAP_DEFAULT`, `GAMMA_TRACKING`, `LAMBDA_DECAY`, `K_FRONTIER_POINTS`). The only UI-owned defaults are risk level `"medium"` and benchmark `"CPI"`.
+- Discrete customer answers (risk level, liquidity limit, currency limit) use `st.select_slider`, so a released handle always rests on a valid stop (dropping it between stops snaps to the nearest one). The allowed stops live in `config.LIQUIDITY_LEVELS` and `config.CURRENCY_LEVELS` (the paper says only "a few discrete levels", so the values are a documented assumption, like the category equity caps) and must contain the existing defaults. The equity cap stays a free 0-100 slider (whole percentages) as the CRM's fine-tuning override of the risk-level preset.
 - Euro benchmark key is `"EUR"`, Yahoo ticker `EURILS=X`, source `yfinance`.
 - `config.py` keeps model identifiers only; friendly display names live in `src/ui_labels.py`.
 - With all-default inputs, `engine.solve_frontier("symmetric", "CPI", 0.55)` must reproduce the existing `outputs/frontiers/medium__CPI__symmetric.csv`.
@@ -730,19 +731,36 @@ git commit -m "refactor: run batch through engine; regenerate outputs with 4 ben
 ### Task 5: Streamlit app core (sidebar, frontier, recommended portfolio)
 
 **Files:**
+- Modify: `src/config.py` (after the `TURNOVER_CAP_DEFAULT` line)
 - Create: `src/ui_labels.py`
 - Create: `src/app.py`
 - Test: `tests/test_app.py`
 
 **Interfaces:**
 - Consumes: `engine.ensure_data`, `engine.solve_frontier`, `engine.InfeasibleProfileError`, `engine.annualized_risk`, `engine.constraint_usage`, `engine.data_window`; `frontier_builder.frontier_to_weight_table`.
-- Produces: session-state keys and widget keys that tests and Task 6 rely on: `risk_level`, `equity_cap` (0-100 int), `benchmark`, `risk_measures`, `liquidity_cap` (0-100 int), `currency_cap` (0-100 int), `gamma`, `lambda_decay`, `K`, button key `reset`, text input `customer`. In `app.py`, module-level names used by Task 6: `ordered` (dict risk_measure -> frontier sorted by `achieved_return`), `focus` (chosen risk-measure key), `point` (1-based position), `rounded` (ndarray of weights, fractions), `benchmark`, `equity_cap`/`liquidity_cap`/`currency_cap` (fractions), `tab_history`/`tab_compare` are added in Task 6.
+- Produces: `config.LIQUIDITY_LEVELS` and `config.CURRENCY_LEVELS` (lists of fractions), and session-state keys and widget keys that tests and Task 6 rely on: `risk_level` (`select_slider`, options are the `config.RISK_LEVEL_CHOICES` keys), `equity_cap` (`slider`, 0-100 int), `benchmark` (`selectbox`), `risk_measures` (`multiselect`), `liquidity_cap` (`select_slider`, whole-percent ints from `config.LIQUIDITY_LEVELS`), `currency_cap` (`select_slider`, whole-percent ints from `config.CURRENCY_LEVELS`), `gamma`, `lambda_decay`, `K`, button key `reset`, text input `customer`. In `app.py`, module-level names used by Task 6: `ordered` (dict risk_measure -> frontier sorted by `achieved_return`), `focus` (chosen risk-measure key), `point` (1-based position), `rounded` (ndarray of weights, fractions), `benchmark`, `equity_cap`/`liquidity_cap`/`currency_cap` (fractions), `tab_history`/`tab_compare` are added in Task 6.
 
 - [ ] **Step 1: Install Streamlit and confirm the testing API exists**
 
 Run: `pip install streamlit`
 Run: `python -c "import streamlit, altair; from streamlit.testing.v1 import AppTest; print(streamlit.__version__, altair.__version__)"`
 Expected: prints two versions (Altair must be 5.x for `xOffset` in Task 6).
+
+- [ ] **Step 1b: Add the discrete level lists to `src/config.py`**
+
+Insert directly after the `TURNOVER_CAP_DEFAULT = None ...` line:
+
+```python
+
+# Discrete customer answers, as in the paper's finite menu of categories. The
+# paper says "a few discrete levels" without giving numbers, so these stops
+# are our documented assumption; edit them here to change what the dashboard
+# offers. Each list must contain the matching default above.
+LIQUIDITY_LEVELS = [0.0, 0.20, 0.40, 0.60, 1.00]   # max share in illiquid assets
+CURRENCY_LEVELS = [0.0, 0.25, 0.50, 0.75, 1.00]    # max share in foreign-currency assets
+assert LIQUIDITY_CAP_DEFAULT in LIQUIDITY_LEVELS, "LIQUIDITY_LEVELS must include the default"
+assert CURRENCY_CAP_DEFAULT in CURRENCY_LEVELS, "CURRENCY_LEVELS must include the default"
+```
 
 - [ ] **Step 2: Write `src/ui_labels.py`**
 
@@ -819,19 +837,32 @@ def test_labels_cover_every_config_key():
     assert set(ui_labels.RISK_MEASURES) == set(config.RISK_MEASURES)
 
 
+def test_discrete_level_lists_contain_the_defaults():
+    assert config.LIQUIDITY_CAP_DEFAULT in config.LIQUIDITY_LEVELS
+    assert config.CURRENCY_CAP_DEFAULT in config.CURRENCY_LEVELS
+
+
 def test_app_loads_with_config_defaults():
     at = _run()
     assert not at.exception
+    assert at.select_slider(key="risk_level").value == "medium"
     assert at.slider(key="equity_cap").value == 55      # 'medium' preset
-    assert at.slider(key="liquidity_cap").value == 40
-    assert at.slider(key="currency_cap").value == 100
+    assert at.select_slider(key="liquidity_cap").value == 40
+    assert at.select_slider(key="currency_cap").value == 100
     assert at.selectbox(key="benchmark").value == "CPI"
     assert at.multiselect(key="risk_measures").value == list(config.RISK_MEASURES)
 
 
+def test_discrete_sliders_offer_only_the_configured_stops():
+    at = _run()
+    assert len(at.select_slider(key="risk_level").options) == len(config.RISK_LEVEL_CHOICES)
+    assert len(at.select_slider(key="liquidity_cap").options) == len(config.LIQUIDITY_LEVELS)
+    assert len(at.select_slider(key="currency_cap").options) == len(config.CURRENCY_LEVELS)
+
+
 def test_risk_level_preset_sets_equity_slider():
     at = _run()
-    at.selectbox(key="risk_level").set_value("low").run()
+    at.select_slider(key="risk_level").set_value("low").run()
     assert not at.exception
     assert at.slider(key="equity_cap").value == 20
 
@@ -841,7 +872,7 @@ def test_slider_can_override_the_preset():
     at.slider(key="equity_cap").set_value(63).run()
     assert not at.exception
     assert at.slider(key="equity_cap").value == 63
-    assert at.selectbox(key="risk_level").value == "medium"
+    assert at.select_slider(key="risk_level").value == "medium"
 
 
 def test_changing_equity_cap_changes_the_recommendation():
@@ -855,17 +886,17 @@ def test_changing_equity_cap_changes_the_recommendation():
 def test_reset_restores_defaults():
     at = _run()
     at.slider(key="equity_cap").set_value(90).run()
-    at.slider(key="liquidity_cap").set_value(5).run()
+    at.select_slider(key="liquidity_cap").set_value(20).run()
     at.button(key="reset").click().run()
     assert at.slider(key="equity_cap").value == 55
-    assert at.slider(key="liquidity_cap").value == 40
+    assert at.select_slider(key="liquidity_cap").value == 40
 
 
 def test_infeasible_limits_show_message_not_traceback():
     at = _run()
     at.slider(key="equity_cap").set_value(0)
-    at.slider(key="liquidity_cap").set_value(0)
-    at.slider(key="currency_cap").set_value(0)
+    at.select_slider(key="liquidity_cap").set_value(0)
+    at.select_slider(key="currency_cap").set_value(0)
     at.run()
     assert not at.exception
     assert any("only one portfolio" in e.value for e in at.error)
@@ -874,7 +905,7 @@ def test_infeasible_limits_show_message_not_traceback():
 - [ ] **Step 4: Run to verify failure**
 
 Run: `python -m pytest tests/test_app.py -v`
-Expected: `test_labels_cover_every_config_key` PASSES (labels exist); the rest FAIL (app file missing).
+Expected: `test_labels_cover_every_config_key` and `test_discrete_level_lists_contain_the_defaults` PASS (labels and config lists exist); the rest FAIL (app file missing).
 
 - [ ] **Step 5: Write `src/app.py`**
 
@@ -908,6 +939,10 @@ st.set_page_config(page_title="Opti-Money CRM", layout="wide")
 
 DEFAULT_RISK_LEVEL = "medium"
 DEFAULT_BENCHMARK = "CPI"
+
+# Allowed stops for the discrete sliders, as whole percentages (see config.py).
+LIQUIDITY_STOPS = [round(v * 100) for v in config.LIQUIDITY_LEVELS]
+CURRENCY_STOPS = [round(v * 100) for v in config.CURRENCY_LEVELS]
 
 # Slider values are whole percentages; converted to fractions before solving.
 DEFAULTS = {
@@ -966,12 +1001,14 @@ with st.sidebar:
     st.text_input("Customer name / ID", key="customer",
                   placeholder="Session only, never saved")
 
-    st.selectbox("Risk level", list(L.RISK_LEVELS), key="risk_level",
-                 format_func=L.RISK_LEVELS.get, on_change=_apply_preset)
+    st.select_slider("Risk level", options=list(L.RISK_LEVELS), key="risk_level",
+                     format_func=L.RISK_LEVELS.get, on_change=_apply_preset,
+                     help="One of the paper's five risk categories; the handle "
+                          "snaps to the nearest one.")
     _tag("risk_level")
 
     st.slider("Maximum equity share (%)", 0, 100, key="equity_cap",
-              help="Preset by the risk level; drag to set any value.")
+              help="Preset by the risk level; drag to fine-tune to any whole percentage.")
     _tag("equity_cap")
 
     st.selectbox("Benchmark", list(config.BENCHMARK_CHOICES), key="benchmark",
@@ -982,10 +1019,16 @@ with st.sidebar:
                    key="risk_measures", format_func=L.RISK_MEASURES.get)
     _tag("risk_measures")
 
-    st.slider("Maximum illiquid assets (%)", 0, 100, key="liquidity_cap")
+    st.select_slider("Maximum illiquid assets", options=LIQUIDITY_STOPS,
+                     key="liquidity_cap", format_func=lambda v: f"{v}%",
+                     help="A few fixed levels, as in the paper's customer questionnaire; "
+                          "the handle snaps to the nearest one.")
     _tag("liquidity_cap")
 
-    st.slider("Maximum foreign-currency assets (%)", 0, 100, key="currency_cap")
+    st.select_slider("Maximum foreign-currency assets", options=CURRENCY_STOPS,
+                     key="currency_cap", format_func=lambda v: f"{v}%",
+                     help="A few fixed levels, as in the paper's customer questionnaire; "
+                          "the handle snaps to the nearest one.")
     _tag("currency_cap")
 
     with st.expander("Analyst settings"):
@@ -1200,7 +1243,7 @@ st.caption("Illustrative reproduction built on public proxy data (Yahoo Finance,
 - [ ] **Step 6: Run the tests**
 
 Run: `python -m pytest tests/test_app.py -v`
-Expected: 7 PASS.
+Expected: 9 PASS.
 
 Common failures and what to check first:
 - A `StreamlitAPIException` about a widget "created with a default value but also had its value set via the Session State API": remove the offending explicit default (`value=`/`index=`) from that widget; the `setdefault` loop already supplies it.
@@ -1210,7 +1253,7 @@ Common failures and what to check first:
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/ui_labels.py src/app.py tests/test_app.py
+git add src/config.py src/ui_labels.py src/app.py tests/test_app.py
 git commit -m "feat: add Streamlit CRM dashboard core (profile sidebar, frontier, recommendation)" -m "Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
@@ -1254,7 +1297,7 @@ def test_current_portfolio_summing_to_100_shows_total_change():
 - [ ] **Step 2: Run to verify failure**
 
 Run: `python -m pytest tests/test_app.py -v`
-Expected: the 3 new tests FAIL (`IndexError`/`KeyError`: widgets and metrics do not exist yet); the earlier 7 still PASS.
+Expected: the 3 new tests FAIL (`IndexError`/`KeyError`: widgets and metrics do not exist yet); the earlier 9 still PASS.
 
 - [ ] **Step 3: Change the tabs line in `src/app.py`**
 
@@ -1353,7 +1396,7 @@ with tab_compare:
 - [ ] **Step 5: Run the full UI tests**
 
 Run: `python -m pytest tests/test_app.py -v`
-Expected: 10 PASS.
+Expected: 12 PASS.
 
 - [ ] **Step 6: Commit**
 
@@ -1393,7 +1436,7 @@ For a relationship-manager view with live controls and graphs:
 
     streamlit run src/app.py
 
-It opens in your browser (usually http://localhost:8501). Pick a risk level (this pre-fills the equity-cap slider, which you can then drag to any value), a benchmark, and the liquidity/currency limits; the efficient frontier and recommended portfolio update immediately. Every control starts at its `src/config.py` default and only changes when you change it; "Reset to defaults" restores them. Tabs: risk/return options, recommended portfolio, history vs benchmark, and a comparison with the customer's current portfolio. Nothing you type is saved.
+It opens in your browser (usually http://localhost:8501). Pick a risk level (this pre-fills the equity-cap slider, which you can then drag to any whole percentage), a benchmark, and the liquidity/currency limits. The risk level and the liquidity/currency limits are discrete, as in the paper's questionnaire: their sliders snap to the nearest allowed level (edit `LIQUIDITY_LEVELS` / `CURRENCY_LEVELS` in `src/config.py` to change the levels). The efficient frontier and recommended portfolio update immediately. Every control starts at its `src/config.py` default and only changes when you change it; "Reset to defaults" restores them. Tabs: risk/return options, recommended portfolio, history vs benchmark, and a comparison with the customer's current portfolio. Nothing you type is saved.
 ```
 
 4. In "4. Run just the tests", replace the body with:
@@ -1415,7 +1458,7 @@ In `docs/superpowers/specs/2026-09-20-crm-streamlit-ui-design.md`:
 - [ ] **Step 3: Full test run**
 
 Run: `python -m pytest tests -v && python tests/test_toy_example.py`
-Expected: all PASS (about 30 tests) and "All toy-example tests passed."
+Expected: all PASS (about 35 tests) and "All toy-example tests passed."
 
 - [ ] **Step 4: Launch the real app and check it serves**
 
