@@ -100,6 +100,15 @@ LIQUIDITY_CAP_DEFAULT = 0.40   # max combined weight allowed in illiquid assets,
 CURRENCY_CAP_DEFAULT = 1.00    # max combined weight allowed in foreign-currency assets, by default (no cap)
 TURNOVER_CAP_DEFAULT = None    # None = no turnover constraint applied by default
 
+# Discrete customer answers, as in the paper's finite menu of categories. The
+# paper says "a few discrete levels" without giving numbers, so these stops
+# are our documented assumption; edit them here to change what the dashboard
+# offers. Each list must contain the matching default above.
+LIQUIDITY_LEVELS = [0.0, 0.20, 0.40, 0.60, 1.00]   # max share in illiquid assets
+CURRENCY_LEVELS = [0.0, 0.25, 0.50, 0.75, 1.00]    # max share in foreign-currency assets
+assert LIQUIDITY_CAP_DEFAULT in LIQUIDITY_LEVELS, "LIQUIDITY_LEVELS must include the default"
+assert CURRENCY_CAP_DEFAULT in CURRENCY_LEVELS, "CURRENCY_LEVELS must include the default"
+
 RISK_MEASURES = ["symmetric", "asymmetric", "markowitz"]
 BENCHMARK_CHOICES = ["CPI", "USD", "ILS_RATE", "EUR"]
 RISK_LEVEL_CHOICES = list(RISK_CATEGORY_EQUITY_CAP.keys())
