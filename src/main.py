@@ -1,70 +1,31 @@
 """Runs the full Opti-Money reproduction pipeline, start to finish:
 
-  1. Download raw data (skipped if already downloaded).
-  2. Build the r-table and benchmark returns.
-  3. Build the forecast vector (rho).
-  4. Build the list of customer profiles (Loop A).
-  5. For each profile, for each risk measure, build the efficient frontier
-     (Loop B, which calls the optimizer / Loop C repeatedly).
-  6. Round every resulting portfolio to clean percentages.
-  7. Save all results as CSVs, and plot risk-vs-return frontiers per profile.
+  1. Make sure raw data, returns, benchmarks and forecasts exist
+     (engine.ensure_data).
+  2. Build the list of customer profiles (Loop A).
+  3. For each profile, for each risk measure, build the efficient frontier
+     (Loop B, via engine.solve_frontier) and round each portfolio to clean
+     percentages.
+  4. Save all results as CSVs, and plot risk-vs-return frontiers per profile.
 """
 
 import os
 import sys
 import time
 
-import numpy as np
-import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
-import data_loader
-import returns_calculator
-import forecasts
-import risk_measures as rm
 import customer_profiles
+import engine
 import frontier_builder
-import rounding
-
-
-def ensure_data():
-    raw_files_present = all(
-        os.path.exists(os.path.join(config.DATA_RAW_DIR, f"{name}.csv"))
-        for name in list(config.ASSETS.keys())
-    )
-    if not raw_files_present:
-        data_loader.download_all_raw_data()
-
-    processed_present = os.path.exists(
-        os.path.join(config.DATA_PROCESSED_DIR, "asset_returns.csv")
-    )
-    if not processed_present:
-        returns_calculator.build_and_save()
-
-    forecasts_present = os.path.exists(
-        os.path.join(config.DATA_PROCESSED_DIR, "forecasts.csv")
-    )
-    if not forecasts_present:
-        r_table, _ = returns_calculator.load_processed()
-        forecasts.build_and_save(r_table)
 
 
 def run_all():
-    ensure_data()
-
-    r_table, bch_table = returns_calculator.load_processed()
-    r_table = r_table[config.ASSET_NAMES]
-    returns_np = r_table.values
-
-    rho_series = forecasts.load_forecasts()
-    rho = rho_series[config.ASSET_NAMES].values  # annual scale, matches forecasts.py
-
-    weights = rm.decaying_weights(config.LAMBDA_DECAY, config.T_MONTHS)
-    market_w = np.array([config.MARKET_PORTFOLIO[n] for n in config.ASSET_NAMES])
+    engine.ensure_data()
 
     profiles = customer_profiles.build_profiles()
 
@@ -75,16 +36,11 @@ def run_all():
     done = 0
 
     for profile in profiles:
-        bch_series = bch_table[profile["benchmark"]].values
-
         for risk_measure in config.RISK_MEASURES:
-            frontier = frontier_builder.build_frontier(
-                risk_measure, profile, returns_np, bch_series, weights,
-                market_w, rho,
-            )
-
-            frontier["rounded_x"] = frontier["x"].apply(
-                lambda x: rounding.largest_remainder_round(np.array(x), grid=0.01)
+            frontier = engine.solve_frontier(
+                risk_measure, profile["benchmark"], profile["equity_cap"],
+                profile["liquidity_cap"], profile["currency_cap"],
+                profile_id=profile["profile_id"],
             )
 
             all_frontiers[(profile["profile_id"], risk_measure)] = frontier
