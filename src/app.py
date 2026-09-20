@@ -28,6 +28,10 @@ st.set_page_config(page_title="Opti-Money CRM", layout="wide")
 DEFAULT_RISK_LEVEL = "medium"
 DEFAULT_BENCHMARK = "CPI"
 
+# Altair cuts legend/axis labels at ~160-180 px by default, which truncates the
+# longer asset-class and risk-measure names; give them room.
+LABEL_LIMIT_PX = 320
+
 # Allowed stops for the discrete sliders, as whole percentages (see config.py).
 LIQUIDITY_STOPS = [round(v * 100) for v in config.LIQUIDITY_LEVELS]
 CURRENCY_STOPS = [round(v * 100) for v in config.CURRENCY_LEVELS]
@@ -229,7 +233,8 @@ with tab_options:
     y_enc = alt.Y("annual_return:Q", title="Expected annual return (%)")
     lines = alt.Chart(chart_df).mark_line(point=True).encode(
         x=x_enc, y=y_enc,
-        color=alt.Color("measure:N", title="Risk measure"),
+        color=alt.Color("measure:N", title="Risk measure",
+                        legend=alt.Legend(labelLimit=LABEL_LIMIT_PX)),
         tooltip=[
             alt.Tooltip("measure:N", title="Risk measure"),
             alt.Tooltip("position:Q", title="Position"),
@@ -240,7 +245,9 @@ with tab_options:
     marker = alt.Chart(picked_df).mark_point(
         shape="diamond", size=260, filled=True, color="crimson"
     ).encode(x=x_enc, y=y_enc)
-    st.altair_chart((lines + marker).interactive())
+    # Not .interactive(): after a pan/zoom the y-axis labels get wider, Vega does not
+    # re-run the layout, and the axis title is pushed off the canvas and clipped.
+    st.altair_chart(lines + marker)
     st.caption("The red diamond is the selected portfolio. Each risk measure defines "
                "'risk' differently, so compare the shapes rather than exact positions.")
 
@@ -254,7 +261,8 @@ with tab_options:
         alt.Chart(mix_long).mark_area().encode(
             x=alt.X("annual_return:Q", title="Expected annual return (%)"),
             y=alt.Y("weight:Q", stack="zero", title="Weight (%)"),
-            color=alt.Color("asset:N", title="Asset class"),
+            color=alt.Color("asset:N", title="Asset class",
+                            legend=alt.Legend(labelLimit=LABEL_LIMIT_PX)),
             tooltip=[alt.Tooltip("asset:N", title="Asset class"),
                      alt.Tooltip("weight:Q", title="Weight (%)", format=".1f")],
         )
@@ -277,7 +285,8 @@ with tab_portfolio:
         st.altair_chart(
             alt.Chart(held).mark_arc(innerRadius=70).encode(
                 theta=alt.Theta("weight:Q"),
-                color=alt.Color("asset:N", title="Asset class"),
+                color=alt.Color("asset:N", title="Asset class",
+                            legend=alt.Legend(labelLimit=LABEL_LIMIT_PX)),
                 tooltip=[alt.Tooltip("asset:N", title="Asset class"),
                          alt.Tooltip("weight:Q", title="Weight (%)", format=".0f")],
             )
@@ -377,7 +386,7 @@ with tab_compare:
         ])
         st.altair_chart(
             alt.Chart(long).mark_bar().encode(
-                x=alt.X("asset:N", title=None, axis=alt.Axis(labelAngle=-35)),
+                x=alt.X("asset:N", title=None, axis=alt.Axis(labelAngle=-35, labelLimit=LABEL_LIMIT_PX)),
                 xOffset="series:N",
                 y=alt.Y("weight:Q", title="Weight (%)"),
                 color=alt.Color("series:N", title=None),
