@@ -1,4 +1,6 @@
-# How to Run This Project
+# MSO_project2026
+
+## How to Run This Project
 
 This is the working reproduction of the Opti-Money model from the Avriel et al. (2004) paper. Everything is already built and tested — this file just tells you how to actually run it yourself.
 
