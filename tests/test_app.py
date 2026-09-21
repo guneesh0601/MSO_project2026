@@ -41,7 +41,6 @@ def test_app_loads_with_config_defaults():
     at = _run()
     assert not at.exception
     assert at.select_slider(key="risk_level").value == "medium"
-    assert at.slider(key="equity_cap").value == 55      # 'medium' preset
     assert at.select_slider(key="liquidity_cap").value == 40
     assert at.select_slider(key="currency_cap").value == 100
     assert at.multiselect(key="benchmarks").value == ["CPI"]
@@ -53,48 +52,6 @@ def test_discrete_sliders_offer_only_the_configured_stops():
     assert len(at.select_slider(key="risk_level").options) == len(config.RISK_LEVEL_CHOICES)
     assert len(at.select_slider(key="liquidity_cap").options) == len(config.LIQUIDITY_LEVELS)
     assert len(at.select_slider(key="currency_cap").options) == len(config.CURRENCY_LEVELS)
-
-
-def test_risk_level_preset_sets_equity_slider():
-    at = _run()
-    at.select_slider(key="risk_level").set_value("low").run()
-    assert not at.exception
-    assert at.slider(key="equity_cap").value == 20
-
-
-def test_slider_can_override_the_preset():
-    at = _run()
-    at.slider(key="equity_cap").set_value(63).run()
-    assert not at.exception
-    assert at.slider(key="equity_cap").value == 63
-    assert at.select_slider(key="risk_level").value == "medium"
-
-
-def test_changing_equity_cap_changes_the_recommendation():
-    at = _run()
-    before = _metric(at, "Expected annual return")
-    at.slider(key="equity_cap").set_value(10).run()
-    assert not at.exception
-    assert _metric(at, "Expected annual return") != before
-
-
-def test_reset_restores_defaults():
-    at = _run()
-    at.slider(key="equity_cap").set_value(90).run()
-    at.select_slider(key="liquidity_cap").set_value(20).run()
-    at.button(key="reset").click().run()
-    assert at.slider(key="equity_cap").value == 55
-    assert at.select_slider(key="liquidity_cap").value == 40
-
-
-def test_infeasible_limits_show_message_not_traceback():
-    at = _run()
-    at.slider(key="equity_cap").set_value(0)
-    at.select_slider(key="liquidity_cap").set_value(0)
-    at.select_slider(key="currency_cap").set_value(0)
-    at.run()
-    assert not at.exception
-    assert any("only one portfolio" in e.value for e in at.error)
 
 
 def test_history_tab_shows_portfolio_and_benchmark_totals():
@@ -231,15 +188,6 @@ def test_history_chart_names_a_blended_benchmark():
     assert any("Benchmark return (50% CPI + 50% USD/ILS)" in s for s in specs)
 
 
-def test_no_risk_appetite_slider_and_recommendation_is_the_middle_point():
-    at = _run()
-    assert not at.exception
-    assert not [s for s in at.slider if "Risk appetite" in s.label]
-    # default K = 10 gives 12 points; the middle one (position 6) is recommended
-    assert any("middle" in c.value for c in at.caption)
-    assert _metric(at, "Expected annual return").endswith("%")
-
-
 # ---------------------------------------------------------------------------
 # Frontier chart labels use the paper's terms (ExpRet, Symmetric/Asymmetric/Markowitz risk, x_i)
 # ---------------------------------------------------------------------------
@@ -310,3 +258,74 @@ def test_app_survives_stale_project_modules():
     with mock.patch.dict(sys.modules, {"ui_labels": stale}):
         at = _run()
     assert not at.exception
+
+
+# ---------------------------------------------------------------------------
+# The risk level picks the frontier point; there is no equity cap
+# ---------------------------------------------------------------------------
+def _recommended_index(at: AppTest) -> int:
+    return list(_frontier_table(at)["Recommended"]).index("✔")
+
+
+def test_no_equity_cap_slider_any_more():
+    at = _run()
+    assert not at.exception
+    assert not [s for s in at.slider if "equity" in s.label.lower()]
+    assert not [s for s in at.slider if "Risk appetite" in s.label]
+
+
+def test_risk_level_picks_the_frontier_point():
+    # K = 10 gives 12 points; the five levels sit at positions 1, 4, 7, 9, 12 (0-based 0, 3, 6, 8, 11)
+    expected = {"low": 0, "low_medium": 3, "medium": 6, "risk_oriented": 8, "high": 11}
+    at = _run()
+    assert _recommended_index(at) == expected["medium"]          # the default level
+    for level, index in expected.items():
+        at.select_slider(key="risk_level").set_value(level).run()
+        assert not at.exception
+        assert _recommended_index(at) == index, level
+
+
+def test_risk_level_does_not_change_the_frontier_itself():
+    at = _run()
+    before = _frontier_table(at).drop(columns="Recommended")
+    at.select_slider(key="risk_level").set_value("high").run()
+    after = _frontier_table(at).drop(columns="Recommended")
+    assert before.equals(after)
+
+
+def test_higher_risk_level_recommends_a_higher_expected_return():
+    def expected_return(level):
+        at = _run()
+        at.select_slider(key="risk_level").set_value(level).run()
+        return float(_metric(at, "Expected annual return").rstrip("%"))
+
+    assert expected_return("low") < expected_return("medium") < expected_return("high")
+
+
+def test_recommended_portfolio_shows_the_equity_share():
+    at = _run()
+    assert _metric(at, "Equity share").endswith("%")
+
+
+def test_frontier_caption_explains_the_risk_level_pick():
+    at = _run()
+    assert any("risk level" in c.value for c in at.caption)
+
+
+def test_reset_restores_risk_level_and_limits():
+    at = _run()
+    at.select_slider(key="risk_level").set_value("high").run()
+    at.select_slider(key="liquidity_cap").set_value(20).run()
+    at.button(key="reset").click().run()
+    assert at.select_slider(key="risk_level").value == "medium"
+    assert at.select_slider(key="liquidity_cap").value == 40
+
+
+def test_extreme_limits_still_give_a_frontier():
+    at = _run()
+    at.select_slider(key="liquidity_cap").set_value(0)
+    at.select_slider(key="currency_cap").set_value(0)
+    at.run()
+    assert not at.exception
+    assert not at.error
+    assert len(_frontier_table(at)) == config.K_FRONTIER_POINTS + 2

@@ -60,14 +60,18 @@ def turnover_constraint(existing_portfolio: np.ndarray, cap: float):
 
 def build_constraints(profile: dict, rho: np.ndarray, target_return: float = None):
     """profile is a dict produced by customer_profiles.py, containing keys:
-       'equity_cap', 'liquidity_cap', 'currency_cap',
+       'liquidity_cap', 'currency_cap' (each optional; None = no limit),
+       plus an optional 'equity_cap',
        and optionally 'turnover_cap' + 'existing_portfolio'.
 
     target_return: if given, adds the ExpRet = target_return equality
     constraint (this is the Step-4 case). If None, no return constraint is
     added (this is the Step-1 case: minimize risk only).
     """
-    cons = [budget_constraint(), equity_cap_constraint(profile["equity_cap"])]
+    cons = [budget_constraint()]
+
+    if profile.get("equity_cap") is not None:
+        cons.append(equity_cap_constraint(profile["equity_cap"]))
 
     if profile.get("liquidity_cap") is not None:
         cons.append(liquidity_constraint(profile["liquidity_cap"]))

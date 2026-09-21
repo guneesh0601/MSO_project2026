@@ -2,17 +2,20 @@
 
   1. Make sure raw data, returns, benchmarks and forecasts exist
      (engine.ensure_data).
-  2. Build the list of customer profiles (Loop A).
+  2. Build the list of customer profiles (Loop A): one per benchmark.
   3. For each profile, for each risk measure, build the efficient frontier
      (Loop B, via engine.solve_frontier) and round each portfolio to clean
      percentages.
-  4. Save all results as CSVs, and plot risk-vs-return frontiers per profile.
+  4. For each of the five risk levels, pick its point on every frontier
+     (engine.frontier_position) as the recommended portfolio.
+  5. Save all results as CSVs, and plot risk-vs-return frontiers per profile.
 """
 
 import os
 import sys
 import time
 
+import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -30,6 +33,7 @@ def run_all():
     profiles = customer_profiles.build_profiles()
 
     all_frontiers = {}   # (profile_id, risk_measure) -> DataFrame
+    recommended = []     # one row per (benchmark, risk measure, risk level)
 
     start_time = time.time()
     total = len(profiles) * len(config.RISK_MEASURES)
@@ -44,6 +48,7 @@ def run_all():
             )
 
             all_frontiers[(profile["profile_id"], risk_measure)] = frontier
+            recommended += recommended_portfolios(profile["profile_id"], risk_measure, frontier)
 
             out_name = f"{profile['profile_id']}__{risk_measure}.csv"
             out_path = os.path.join(config.OUTPUTS_FRONTIERS_DIR, out_name)
@@ -59,11 +64,34 @@ def run_all():
         print(f"[{done}/{total} risk-measure runs done, "
               f"{elapsed:.1f}s elapsed] finished profile '{profile['profile_id']}'")
 
+    rec_path = os.path.join(os.path.dirname(config.OUTPUTS_FRONTIERS_DIR),
+                            "recommended_portfolios.csv")
+    pd.DataFrame(recommended).to_csv(rec_path, index=False)
+    print(f"Saved {len(recommended)} recommended portfolios to {rec_path}")
+
     plot_frontiers(all_frontiers, profiles)
     print(f"\nDone. {len(profiles)} profiles x {len(config.RISK_MEASURES)} risk "
           f"measures = {total} frontiers built and saved to "
           f"{config.OUTPUTS_FRONTIERS_DIR}")
     return all_frontiers
+
+
+def recommended_portfolios(benchmark: str, risk_measure: str, frontier: pd.DataFrame) -> list[dict]:
+    """The portfolio each risk level gets from this frontier (rounded weights)."""
+    ordered = frontier.sort_values("achieved_return").reset_index(drop=True)
+    rows = []
+    for level in config.RISK_LEVEL_CHOICES:
+        position = engine.frontier_position(level, len(ordered))
+        row = ordered.iloc[position - 1]
+        record = {
+            "benchmark": benchmark, "risk_measure": risk_measure, "risk_level": level,
+            "frontier_point": row["point"], "position": position, "of": len(ordered),
+            "expected_return": row["achieved_return"],
+            "risk_annualised": engine.annualized_risk(row["risk"]),
+        }
+        record.update({name: float(w) for name, w in zip(config.ASSET_NAMES, row["rounded_x"])})
+        rows.append(record)
+    return rows
 
 
 def plot_frontiers(all_frontiers: dict, profiles: list[dict]):

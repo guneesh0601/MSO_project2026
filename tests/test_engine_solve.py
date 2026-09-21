@@ -17,11 +17,9 @@ X = np.array([0.05, 0.20, 0.10, 0.15, 0.25, 0.15, 0.10])
 
 
 def test_default_frontier_matches_batch_csv():
-    frontier = engine.solve_frontier(
-        "symmetric", "CPI", config.RISK_CATEGORY_EQUITY_CAP["medium"]
-    )
+    frontier = engine.solve_frontier("symmetric", "CPI")
     expected = pd.read_csv(
-        os.path.join(config.OUTPUTS_FRONTIERS_DIR, "medium__CPI__symmetric.csv")
+        os.path.join(config.OUTPUTS_FRONTIERS_DIR, "CPI__symmetric.csv")
     )
     assert list(frontier["point"]) == list(expected["point"])
     np.testing.assert_allclose(frontier["risk"], expected["risk"], rtol=1e-6, atol=1e-12)
@@ -161,3 +159,39 @@ def test_monthly_returns_are_portfret_and_bchret():
     )
     assert list(monthly.columns) == ["Portfolio", "Benchmark"]
     assert len(monthly) == config.T_MONTHS
+
+
+# ---------------------------------------------------------------------------
+# Risk level picks the frontier point; there is no equity cap by default
+# ---------------------------------------------------------------------------
+def test_frontier_position_spreads_the_five_levels_evenly():
+    levels = config.RISK_LEVEL_CHOICES
+    assert [engine.frontier_position(level, 12) for level in levels] == [1, 4, 7, 9, 12]
+    assert [engine.frontier_position(level, 5) for level in levels] == [1, 2, 3, 4, 5]
+    assert engine.frontier_position("low", 30) == 1
+    assert engine.frontier_position("high", 30) == 30
+
+
+def test_frontier_position_is_always_a_valid_point():
+    for n_points in range(2, 33):
+        for level in config.RISK_LEVEL_CHOICES:
+            assert 1 <= engine.frontier_position(level, n_points) <= n_points
+
+
+def test_no_equity_cap_by_default():
+    default = engine.solve_frontier("symmetric", "CPI")
+    explicit_no_cap = engine.solve_frontier("symmetric", "CPI", 1.0)
+    np.testing.assert_allclose(default["risk"], explicit_no_cap["risk"])
+    # with no cap the maximum-return end is 100% in the highest-forecast asset (Euro equities)
+    top = np.array(default.loc[default["point"] == "max_return", "x"].iloc[0])
+    assert top[config.ASSET_NAMES.index("EU_Equity")] > 0.99
+
+
+def test_constraints_do_not_require_an_equity_cap():
+    import constraints as cons_mod
+    rho = engine.load_inputs()["rho"].values
+    cons = cons_mod.build_constraints({"liquidity_cap": 0.4, "currency_cap": 1.0}, rho)
+    assert len(cons) == 3          # budget + liquidity + currency
+    with_cap = cons_mod.build_constraints(
+        {"equity_cap": 0.5, "liquidity_cap": 0.4, "currency_cap": 1.0}, rho)
+    assert len(with_cap) == 4

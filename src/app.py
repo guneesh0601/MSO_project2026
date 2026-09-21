@@ -50,7 +50,6 @@ CURRENCY_STOPS = [round(v * 100) for v in config.CURRENCY_LEVELS]
 # Slider values are whole percentages; converted to fractions before solving.
 DEFAULTS = {
     "risk_level": DEFAULT_RISK_LEVEL,
-    "equity_cap": round(config.RISK_CATEGORY_EQUITY_CAP[DEFAULT_RISK_LEVEL] * 100),
     "benchmarks": [DEFAULT_BENCHMARK],
     "risk_measures": list(config.RISK_MEASURES),
     "liquidity_cap": round(config.LIQUIDITY_CAP_DEFAULT * 100),
@@ -66,12 +65,6 @@ DEFAULTS.update({f"bw_{name}": (100 if name == DEFAULT_BENCHMARK else 0)
 
 for _key, _value in DEFAULTS.items():
     st.session_state.setdefault(_key, list(_value) if isinstance(_value, list) else _value)
-
-
-def _apply_preset():
-    """Selecting a risk level pre-fills the equity slider with that level's default."""
-    level = st.session_state["risk_level"]
-    st.session_state["equity_cap"] = round(config.RISK_CATEGORY_EQUITY_CAP[level] * 100)
 
 
 def _equalize_benchmark_weights():
@@ -127,12 +120,12 @@ def _prepare_data():
 
 
 @st.cache_data(show_spinner="Optimizing portfolios...")
-def _solve(risk_measure, benchmark_key, equity_cap, liquidity_cap, currency_cap,
+def _solve(risk_measure, benchmark_key, liquidity_cap, currency_cap,
            gamma, lambda_decay, K):
     # benchmark_key is a name, or a hashable tuple of (name, weight) pairs for a blend.
     benchmark = benchmark_key if isinstance(benchmark_key, str) else dict(benchmark_key)
     return engine.solve_frontier(
-        risk_measure, benchmark, equity_cap, liquidity_cap, currency_cap,
+        risk_measure, benchmark, None, liquidity_cap, currency_cap,
         gamma, lambda_decay, K,
     )
 
@@ -146,14 +139,12 @@ with st.sidebar:
                   placeholder="Session only, never saved")
 
     st.select_slider("Risk level", options=list(L.RISK_LEVELS), key="risk_level",
-                     format_func=L.RISK_LEVELS.get, on_change=_apply_preset,
-                     help="One of the paper's five risk categories; the handle "
-                          "snaps to the nearest one.")
+                     format_func=L.RISK_LEVELS.get,
+                     help="One of the paper's five risk categories; the handle snaps to the "
+                          "nearest one. It does not restrict the portfolio: it picks which "
+                          "point on the customer's frontier is recommended (Low = minimum "
+                          "risk ... High = maximum return).")
     _tag("risk_level")
-
-    st.slider("Maximum equity share (%)", 0, 100, key="equity_cap",
-              help="Preset by the risk level; drag to fine-tune to any whole percentage.")
-    _tag("equity_cap")
 
     st.multiselect("Benchmark(s)", list(config.BENCHMARK_CHOICES), key="benchmarks",
                    format_func=L.BENCHMARKS.get, on_change=_equalize_benchmark_weights,
@@ -225,7 +216,6 @@ else:
     benchmark = {n: w / 100 for n, w in weights_pct.items() if w > 0}
     benchmark_key = tuple(sorted(benchmark.items()))
 
-equity_cap = st.session_state["equity_cap"] / 100
 liquidity_cap = st.session_state["liquidity_cap"] / 100
 currency_cap = st.session_state["currency_cap"] / 100
 
@@ -233,14 +223,14 @@ frontiers = {}
 try:
     for _measure in measures:
         frontiers[_measure] = _solve(
-            _measure, benchmark_key, equity_cap, liquidity_cap, currency_cap,
+            _measure, benchmark_key, liquidity_cap, currency_cap,
             st.session_state["gamma"], st.session_state["lambda_decay"],
             st.session_state["K"],
         )
 except engine.InfeasibleProfileError:
     st.error(
         "These limits leave room for only one portfolio (100% cash), so there is "
-        "no frontier to show. Raise the equity, illiquid or foreign-currency limit."
+        "no frontier to show. Raise the illiquid or foreign-currency limit."
     )
     st.stop()
 
@@ -262,17 +252,17 @@ st.caption(f"Market data window: {_start:%b %Y} to {_end:%b %Y} "
 st.markdown(
     f"**Risk level:** {L.RISK_LEVELS[st.session_state['risk_level']]} · "
     f"**Benchmark:** {_benchmark_label(benchmark)} · "
-    f"**Limits:** equity {equity_cap:.0%}, illiquid {liquidity_cap:.0%}, "
-    f"foreign currency {currency_cap:.0%}"
+    f"**Limits:** illiquid {liquidity_cap:.0%}, foreign currency {currency_cap:.0%}"
 )
 
 # ---------------------------------------------------------------------------
-# Recommendation: which risk measure, and the middle point of its frontier
+# Recommendation: which risk measure, and the point the risk level picks on its frontier
 # ---------------------------------------------------------------------------
 n_points = len(next(iter(ordered.values())))
 focus = st.radio("Risk measure for the recommendation", measures,
                  format_func=L.RISK_MEASURES.get, horizontal=True)
-point = (n_points + 1) // 2      # 1-based position; the middle of the frontier
+# 1-based position on the frontier: Low = Step 1 ... High = Step 2, evenly spaced between.
+point = engine.frontier_position(st.session_state["risk_level"], n_points)
 
 frontier = ordered[focus]
 row = frontier.iloc[point - 1]
@@ -305,7 +295,8 @@ with tab_options:
                "evenly spaced expected returns, and Step 2 is the maximum-return portfolio. "
                "Weights are rounded to whole percentages. ExpRet = sum(rho_i * x_i); risk is "
                "the measure's risk score annualised as sqrt(12 * score). The recommended "
-               "portfolio is the middle point of the frontier.")
+               "portfolio is the point picked by the customer's risk level: Low = Step 1, "
+               "High = Step 2, the other levels evenly spaced between.")
 
 # ---------------------------------------------------------------------------
 # Tab 2: the recommended portfolio
@@ -332,9 +323,10 @@ with tab_portfolio:
         )
 
     with right:
-        m_return, m_risk = st.columns(2)
+        m_return, m_risk, m_equity = st.columns(3)
         m_return.metric("Expected annual return", f"{row['achieved_return']:.2%}")
         m_risk.metric("Annualized risk", f"{engine.annualized_risk(row['risk']):.2%}")
+        m_equity.metric("Equity share", f"{engine.constraint_usage(rounded)['equity']:.0%}")
         st.dataframe(
             held.assign(weight=held["weight"].map(lambda w: f"{w:.0f}%"))
                 .rename(columns={"asset": "Asset class", "weight": "Weight"}),
@@ -345,9 +337,9 @@ with tab_portfolio:
     st.subheader("Limits check")
     usage = engine.constraint_usage(rounded)
     usage_df = pd.DataFrame({
-        "limit": ["Equity", "Foreign currency", "Illiquid assets"],
-        "used": [usage["equity"] * 100, usage["foreign"] * 100, usage["illiquid"] * 100],
-        "cap": [equity_cap * 100, currency_cap * 100, liquidity_cap * 100],
+        "limit": ["Foreign currency", "Illiquid assets"],
+        "used": [usage["foreign"] * 100, usage["illiquid"] * 100],
+        "cap": [currency_cap * 100, liquidity_cap * 100],
     })
     limit_axis = alt.Y("limit:N", title=None, sort=None)
     bars = alt.Chart(usage_df).mark_bar().encode(

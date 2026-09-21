@@ -10,6 +10,7 @@ Nothing here mutates config; every tunable is a function argument that
 defaults to the config value.
 """
 
+import math
 import os
 import sys
 from functools import lru_cache
@@ -126,14 +127,16 @@ def benchmark_series(benchmark) -> np.ndarray:
     return sum(table[name].values * w for name, w in weights.items())
 
 
-def solve_frontier(risk_measure: str, benchmark, equity_cap: float,
+def solve_frontier(risk_measure: str, benchmark, equity_cap: float = None,
                    liquidity_cap: float = None, currency_cap: float = None,
                    gamma: float = None, lambda_decay: float = None, K: int = None,
                    profile_id: str = "custom") -> pd.DataFrame:
     """Build one efficient frontier for one customer profile.
 
-    Caps are fractions (0.55 = 55%). Any argument left as None takes its
-    config.py default. `benchmark` is a name or a {name: weight} blend (see
+    Caps are fractions (0.55 = 55%). `equity_cap` is optional: None means no
+    limit on equities (the risk level does not constrain the portfolio; see
+    frontier_position). Any other argument left as None takes its config.py
+    default. `benchmark` is a name or a {name: weight} blend (see
     benchmark_series). Raises InfeasibleProfileError when the limits leave
     no room for more than one portfolio.
     """
@@ -153,10 +156,10 @@ def solve_frontier(risk_measure: str, benchmark, equity_cap: float,
         "turnover_cap": None,
     }
     weights = rm.decaying_weights(lambda_decay, config.T_MONTHS)
-    message = (
-        f"The limits (equity {equity_cap:.0%}, illiquid {liquidity_cap:.0%}, "
-        f"foreign currency {currency_cap:.0%}) leave room for only one portfolio."
-    )
+    limits = [f"illiquid {liquidity_cap:.0%}", f"foreign currency {currency_cap:.0%}"]
+    if equity_cap is not None:
+        limits.insert(0, f"equity {equity_cap:.0%}")
+    message = f"The limits ({', '.join(limits)}) leave room for only one portfolio."
 
     try:
         frontier = frontier_builder.build_frontier(
@@ -175,6 +178,17 @@ def solve_frontier(risk_measure: str, benchmark, equity_cap: float,
         lambda x: rounding.largest_remainder_round(np.array(x), grid=0.01)
     )
     return frontier
+
+
+def frontier_position(risk_level: str, n_points: int) -> int:
+    """1-based position on a frontier of n_points that the customer's risk level
+    picks. The five levels are spread evenly from Step 1 (Low = minimum risk) to
+    Step 2 (High = maximum return): for 12 points, positions 1, 4, 7, 9, 12.
+    The paper does not say how levels map to points; the even spacing is our
+    assumption."""
+    levels = config.RISK_LEVEL_CHOICES
+    index = levels.index(risk_level)
+    return 1 + math.floor(index * (n_points - 1) / (len(levels) - 1) + 0.5)
 
 
 # ---------------------------------------------------------------------------

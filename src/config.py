@@ -87,15 +87,6 @@ assert abs(sum(MARKET_PORTFOLIO.values()) - 1.0) < 1e-9, "MARKET_PORTFOLIO must 
 # ---------------------------------------------------------------------------
 # Customer-profile parameters (documented assumptions -- paper gives no exact numbers)
 # ---------------------------------------------------------------------------
-# Risk category -> maximum allowed combined weight in equity-like assets (IL/US/EU equity)
-RISK_CATEGORY_EQUITY_CAP = {
-    "low":            0.20,
-    "low_medium":     0.35,
-    "medium":         0.55,
-    "risk_oriented":  0.75,
-    "high":           1.00,
-}
-
 LIQUIDITY_CAP_DEFAULT = 0.40   # max combined weight allowed in illiquid assets, by default
 CURRENCY_CAP_DEFAULT = 1.00    # max combined weight allowed in foreign-currency assets, by default (no cap)
 TURNOVER_CAP_DEFAULT = None    # None = no turnover constraint applied by default
@@ -111,7 +102,11 @@ assert CURRENCY_CAP_DEFAULT in CURRENCY_LEVELS, "CURRENCY_LEVELS must include th
 
 RISK_MEASURES = ["symmetric", "asymmetric", "markowitz"]
 BENCHMARK_CHOICES = ["CPI", "USD", "ILS_RATE", "EUR"]
-RISK_LEVEL_CHOICES = list(RISK_CATEGORY_EQUITY_CAP.keys())
+# The paper's five risk-taking levels (p. 41), lowest to highest. The level does not
+# constrain the portfolio; it picks which point of the customer's frontier to recommend
+# (engine.frontier_position). How the paper maps levels to points is not stated, so the
+# even spacing used there is our assumption.
+RISK_LEVEL_CHOICES = ["low", "low_medium", "medium", "risk_oriented", "high"]
 
 # ---------------------------------------------------------------------------
 # Data download window
