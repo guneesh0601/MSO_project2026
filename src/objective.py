@@ -31,3 +31,6 @@ def build_negative_expected_return(rho: np.ndarray):
         return -rm.expected_return(x, rho)
 
     return objective
+
+
+
