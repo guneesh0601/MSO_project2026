@@ -40,9 +40,8 @@ The UI never mutates `config` globals. `gamma`, `K` and `lambda_decay` are passe
 (risk level, benchmark, equity/foreign/illiquid caps).
 
 **Sidebar — "Customer profile":**
-- Risk level: a 5-stop snapping slider (low ... high). Selecting one sets the equity-cap slider to that
-  category's preset from `RISK_CATEGORY_EQUITY_CAP`; the CRM may then drag the equity slider to any whole
-  percentage (0-100%) as a fine-tuning override.
+- Risk level: a 5-stop snapping slider (low ... high). It picks which point of the frontier is recommended
+  (see the last addendum); it is not a constraint. (Originally it set an equity cap; that was removed.)
 - Benchmark dropdown: Israeli CPI, USD/ILS, Bank of Israel rate (3M interbank proxy), EUR/ILS.
 - Risk measure(s): multiselect, all three by default (symmetric, asymmetric downside, classical Markowitz).
 - Liquidity cap and currency cap: snapping sliders over a few discrete levels, as in the paper's customer
@@ -143,3 +142,22 @@ we let the CRM enter them. Multiple *objectives* are out of scope (objectives ar
 - **Tests:** `{CPI: 1.0}` reproduces the plain CPI frontier; the blend equals a hand-computed weighted sum;
   invalid weights raise; a blend changes the symmetric frontier; Markowitz is benchmark-independent; UI tests
   for equal-split reset, the not-100% message, a valid two-benchmark blend, and reset.
+
+## Addendum: risk level picks the frontier point (no equity cap)
+
+Originally the risk level set an equity cap (`RISK_CATEGORY_EQUITY_CAP`), which is a *constraint*, so every
+risk level had its own frontier. That was our own planning assumption, not the paper's: p. 49 lists the
+parameters that define a frontier (horizon, benchmark, liquidity level, tax status, forecast modification) and
+the risk level is not among them; p. 44 gives each portfolio a risk-scale of 1-5; p. 49 says the recommended
+portfolios are drawn from the K+2 frontier points. The paper does not say how the level is used, so the mapping
+below is our assumption.
+
+- **One frontier per customer** (benchmark, risk measure, liquidity/currency limits, gamma, lambda, K). No equity cap.
+- **The risk level picks the point:** `engine.frontier_position(risk_level, n_points)` spreads the five levels evenly
+  from Step 1 (Low = minimum risk) to Step 2 (High = maximum return): for 12 points, positions 1, 4, 7, 9, 12.
+- **Removed:** `RISK_CATEGORY_EQUITY_CAP`, the equity-cap slider and its presets. `constraints.build_constraints`
+  and `engine.solve_frontier` keep an *optional* `equity_cap` (None = no cap) so the engine stays general.
+- **Known consequence:** with no cap the High level is the pure maximum-return portfolio, currently 100% in the
+  highest-forecast asset (Euro equities). That is what the paper's Step 2 does; it depends on our hand-picked forecasts.
+- **Batch outputs:** profiles become one per benchmark (4 benchmarks x 3 risk measures = 12 frontiers) plus
+  `outputs/recommended_portfolios.csv` (the 5 recommended portfolios per frontier). The 60 per-risk-level files are deleted.

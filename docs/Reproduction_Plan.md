@@ -145,6 +145,7 @@ The paper mentions these but does not give exact formulas — we implement them 
 
 - **Budget & no short-selling:** $\sum_i x_i = 1,\ x_i \ge 0$ (always present).
 - **Risk-level bounds:** each of the 5 customer risk categories (low, low-medium, medium, risk-oriented, high) maps to bounds on total equity-like allocation (e.g. "low risk → equities ≤ 20%"). Paper doesn't give exact numbers; we define reasonable bounds ourselves and document the assumption.
+  > **Superseded:** this equity-bound reading of the risk level was our own assumption. The paper (p. 49) does not list the risk level among the parameters that define a frontier, so the risk level now picks a point on the customer's frontier instead of constraining it. See the last addendum in `docs/superpowers/specs/2026-09-20-crm-streamlit-ui-design.md`.
 - **Liquidity constraint:** an upper bound on the combined weight of illiquid asset classes (e.g. CDs): $\sum_{i \in \text{Illiquid}} x_i \le L$.
 - **Currency constraint:** bound on domestic vs. foreign-currency asset weight: $\sum_{i\in\text{Foreign}} x_i \le F$ (or a fixed split if the customer explicitly restricts to one currency).
 - **Turnover constraint:** limits how much the *new* portfolio can differ from the customer's *existing* portfolio $x_i^{\text{old}}$, e.g. $\sum_i |x_i - x_i^{\text{old}}| \le \text{Turnover}_{\max}$ (paper only says "no more than a certain percentage of new assets"; exact formula not given — we'll use this standard L1-turnover form, or a simpler "new-asset fraction" cap).
