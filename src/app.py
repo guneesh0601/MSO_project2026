@@ -3,8 +3,7 @@
 Run with:  streamlit run src/app.py
 
 A relationship manager enters a customer's profile in the sidebar, sees the
-efficient frontier for it, picks a point, and explains the recommended
-portfolio. All optimization happens in engine.py; this file is UI only.
+frontier portfolios for it, and explains the recommended portfolio. All optimization happens in engine.py; this file is UI only.
 Every control starts at its config.py default; only controls the user
 changes deviate from it.
 """
@@ -18,6 +17,18 @@ import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Streamlit re-runs this script on every interaction but keeps imported modules in
+# memory, so an edit to engine.py, ui_labels.py, config.py ... was not picked up until
+# the server was restarted (typically an AttributeError on a new name). Drop this
+# project's own modules so every run imports them fresh; third-party modules stay.
+_SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+for _name, _module in list(sys.modules.items()):
+    _path = getattr(_module, "__file__", None)
+    if (_path and _name != "__main__" and os.path.abspath(_path) != os.path.abspath(__file__)
+            and os.path.dirname(os.path.abspath(_path)) == _SRC_DIR):
+        del sys.modules[_name]
+
 import config
 import engine
 import frontier_builder
@@ -80,6 +91,22 @@ def _benchmark_label(benchmark) -> str:
     if isinstance(benchmark, str):
         return L.BENCHMARKS[benchmark]
     return " + ".join(f"{round(w * 100)}% {L.BENCHMARKS_SHORT[n]}" for n, w in benchmark.items())
+
+
+def _benchmark_short(benchmark) -> str:
+    """'CPI' for one benchmark, '60% CPI + 40% USD/ILS' for a blend (for chart legends)."""
+    if isinstance(benchmark, str):
+        return L.BENCHMARKS_SHORT[benchmark]
+    return _benchmark_label(benchmark)
+
+
+def _point_label(point: str) -> str:
+    """Frontier point names in the paper's terms: Step 1, k = 1 ... K, Step 2."""
+    if point == "min_risk":
+        return "Step 1: minimum risk"
+    if point == "max_return":
+        return "Step 2: maximum return"
+    return point.replace("k=", "k = ")
 
 
 def _reset():
@@ -240,23 +267,19 @@ st.markdown(
 )
 
 # ---------------------------------------------------------------------------
-# Customer choice: which risk measure, and where on the frontier
+# Recommendation: which risk measure, and the middle point of its frontier
 # ---------------------------------------------------------------------------
 n_points = len(next(iter(ordered.values())))
-choice_left, choice_right = st.columns([1, 2])
-with choice_left:
-    focus = st.radio("Risk measure for the recommendation", measures,
-                     format_func=L.RISK_MEASURES.get)
-with choice_right:
-    point = st.slider("Risk appetite (1 = most conservative, highest number = most growth)",
-                      1, n_points, value=(n_points + 1) // 2)
+focus = st.radio("Risk measure for the recommendation", measures,
+                 format_func=L.RISK_MEASURES.get, horizontal=True)
+point = (n_points + 1) // 2      # 1-based position; the middle of the frontier
 
 frontier = ordered[focus]
 row = frontier.iloc[point - 1]
 rounded = np.array(row["rounded_x"], dtype=float)
 
 tab_options, tab_portfolio, tab_history, tab_compare = st.tabs([
-    "Risk & return options", "Recommended portfolio",
+    "Frontier portfolios", "Recommended portfolio",
     "History vs benchmark", "Compare with current portfolio",
 ])
 
@@ -264,58 +287,25 @@ tab_options, tab_portfolio, tab_history, tab_compare = st.tabs([
 # Tab 1: frontier + how the mix changes along it
 # ---------------------------------------------------------------------------
 with tab_options:
-    st.subheader("Risk and return options")
+    st.subheader("Balanced efficient frontier: the K + 2 portfolios")
 
-    chart_df = pd.concat([
-        pd.DataFrame({
-            "measure": L.RISK_MEASURES[m],
-            "position": range(1, len(f) + 1),
-            "annual_risk": f["risk"].map(engine.annualized_risk) * 100,
-            "annual_return": f["achieved_return"] * 100,
-        })
-        for m, f in ordered.items()
-    ], ignore_index=True)
-    picked_df = chart_df[(chart_df["measure"] == L.RISK_MEASURES[focus])
-                         & (chart_df["position"] == point)]
-
-    x_enc = alt.X("annual_risk:Q", title="Annualized risk (%)")
-    y_enc = alt.Y("annual_return:Q", title="Expected annual return (%)")
-    lines = alt.Chart(chart_df).mark_line(point=True).encode(
-        x=x_enc, y=y_enc,
-        color=alt.Color("measure:N", title="Risk measure",
-                        legend=alt.Legend(labelLimit=LABEL_LIMIT_PX)),
-        tooltip=[
-            alt.Tooltip("measure:N", title="Risk measure"),
-            alt.Tooltip("position:Q", title="Position"),
-            alt.Tooltip("annual_risk:Q", title="Risk (%)", format=".2f"),
-            alt.Tooltip("annual_return:Q", title="Return (%)", format=".2f"),
-        ],
-    )
-    marker = alt.Chart(picked_df).mark_point(
-        shape="diamond", size=260, filled=True, color="crimson"
-    ).encode(x=x_enc, y=y_enc)
-    # Not .interactive(): after a pan/zoom the y-axis labels get wider, Vega does not
-    # re-run the layout, and the axis title is pushed off the canvas and clipped.
-    st.altair_chart(lines + marker)
-    st.caption("The red diamond is the selected portfolio. Each risk measure defines "
-               "'risk' differently, so compare the shapes rather than exact positions.")
-
-    mix = pd.DataFrame(np.vstack(frontier["x"].values), columns=config.ASSET_NAMES)
-    mix["annual_return"] = frontier["achieved_return"].values * 100
-    mix_long = mix.melt(id_vars="annual_return", var_name="asset", value_name="weight")
-    mix_long["asset"] = mix_long["asset"].map(L.ASSETS)
-    mix_long["weight"] = mix_long["weight"] * 100
-    st.subheader("How the mix changes as you take more risk")
-    st.altair_chart(
-        alt.Chart(mix_long).mark_area().encode(
-            x=alt.X("annual_return:Q", title="Expected annual return (%)"),
-            y=alt.Y("weight:Q", stack="zero", title="Weight (%)"),
-            color=alt.Color("asset:N", title="Asset class",
-                            legend=alt.Legend(labelLimit=LABEL_LIMIT_PX)),
-            tooltip=[alt.Tooltip("asset:N", title="Asset class"),
-                     alt.Tooltip("weight:Q", title="Weight (%)", format=".1f")],
-        )
-    )
+    table = pd.DataFrame({
+        "Point": [_point_label(p) for p in frontier["point"]],
+        "Recommended": ["✔" if i + 1 == point else "" for i in range(len(frontier))],
+        "ExpRet (% per year)": (frontier["achieved_return"] * 100).round(2),
+        "Risk, annualised (%)": (frontier["risk"].map(engine.annualized_risk) * 100).round(2),
+    })
+    weights = pd.DataFrame(
+        np.vstack(frontier["rounded_x"].values) * 100,
+        columns=[L.ASSETS_SHORT[a] for a in config.ASSET_NAMES],
+    ).round(0).astype(int).astype(str) + "%"
+    st.dataframe(pd.concat([table, weights], axis=1), hide_index=True)
+    st.caption("Each row is one portfolio on the frontier of the selected risk measure, as in "
+               "the paper (p. 49): Step 1 is the minimum-risk portfolio, k = 1 ... K are "
+               "evenly spaced expected returns, and Step 2 is the maximum-return portfolio. "
+               "Weights are rounded to whole percentages. ExpRet = sum(rho_i * x_i); risk is "
+               "the measure's risk score annualised as sqrt(12 * score). The recommended "
+               "portfolio is the middle point of the frontier.")
 
 # ---------------------------------------------------------------------------
 # Tab 2: the recommended portfolio
@@ -390,17 +380,36 @@ with tab_portfolio:
 with tab_history:
     st.subheader("History vs benchmark")
     history = engine.portfolio_history(rounded, benchmark)
-    benchmark_label = _benchmark_label(benchmark)
 
     total_portfolio = history["Portfolio"].iloc[-1] / 100 - 1
     total_benchmark = history["Benchmark"].iloc[-1] / 100 - 1
     h_left, h_right = st.columns(2)
-    h_left.metric("Portfolio, total over window", f"{total_portfolio:+.1%}")
-    h_right.metric("Benchmark, total over window", f"{total_benchmark:+.1%}")
+    h_left.metric("Portfolio return, total over window", f"{total_portfolio:+.1%}")
+    h_right.metric("Benchmark return, total over window", f"{total_benchmark:+.1%}")
 
-    st.line_chart(history.rename(columns={"Benchmark": benchmark_label}))
-    st.caption(f"Growth of 100 invested in {_start:%b %Y}. Historical and in-sample "
-               "(the portfolio was chosen using this same period): not a forecast.")
+    portfolio_series = "Portfolio return"
+    benchmark_series_name = f"Benchmark return ({_benchmark_short(benchmark)})"
+    monthly = (engine.monthly_returns(rounded, benchmark) * 100).rename_axis("month")
+    monthly = monthly.rename(columns={"Portfolio": portfolio_series,
+                                      "Benchmark": benchmark_series_name})
+    monthly_long = monthly.reset_index().melt(
+        id_vars="month", var_name="series", value_name="return_pct")
+    st.altair_chart(
+        alt.Chart(monthly_long).mark_line(point=True).encode(
+            x=alt.X("month:T", title="Month",
+                    axis=alt.Axis(format="%b %Y", labelAngle=-45)),
+            y=alt.Y("return_pct:Q", title="Monthly return (%)"),
+            color=alt.Color("series:N", title=None,
+                            legend=alt.Legend(orient="bottom", labelLimit=LABEL_LIMIT_PX)),
+            tooltip=[alt.Tooltip("month:T", title="Month", format="%b %Y"),
+                     alt.Tooltip("series:N", title="Series"),
+                     alt.Tooltip("return_pct:Q", title="Return (%)", format=".2f")],
+        )
+    )
+    st.caption("Month-by-month return of the recommended portfolio (PortfRet) and of the "
+               "benchmark (BchRet): the two series the risk measures compare. The totals "
+               "above compound them over the window. Historical and in-sample (the portfolio "
+               "was chosen using this same period): not a forecast.")
 
 # ---------------------------------------------------------------------------
 # Tab 4: current vs proposed

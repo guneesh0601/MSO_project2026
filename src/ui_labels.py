@@ -11,6 +11,17 @@ ASSETS = {
     "Cash":             "Cash / short-term deposits",
 }
 
+# Short forms, used as column headers in the frontier table.
+ASSETS_SHORT = {
+    "IL_Equity":        "Israeli equities",
+    "US_Equity":        "US equities",
+    "EU_Equity":        "Euro equities",
+    "Foreign_Bond":     "Foreign bonds",
+    "IL_Bond_Unlinked": "IL bonds (unlinked)",
+    "IL_Bond_Linked":   "IL bonds (CPI-linked)",
+    "Cash":             "Cash",
+}
+
 BENCHMARKS = {
     "CPI":      "Israeli CPI (inflation)",
     "USD":      "USD/ILS exchange rate",
@@ -34,8 +45,10 @@ RISK_LEVELS = {
     "high":          "High",
 }
 
+# Named after the risk measures in the paper (p. 47): (1) Symmetric Risk,
+# (2) Asymmetric Risk, (4) classical Markowitz risk V.
 RISK_MEASURES = {
-    "symmetric":  "Benchmark-relative (symmetric)",
-    "asymmetric": "Downside vs benchmark (asymmetric)",
-    "markowitz":  "Classical volatility (Markowitz)",
+    "symmetric":  "Symmetric Risk (benchmark-relative)",
+    "asymmetric": "Asymmetric Risk (downside vs benchmark)",
+    "markowitz":  "Markowitz Risk V (portfolio variance)",
 }
