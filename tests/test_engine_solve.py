@@ -148,3 +148,16 @@ def test_portfolio_history_uses_the_blended_benchmark():
     table = engine.load_inputs()["bch_table"]
     blended = 0.5 * table["CPI"].values + 0.5 * table["USD"].values
     np.testing.assert_allclose(history["Benchmark"].values, 100.0 * np.cumprod(1.0 + blended))
+
+
+def test_monthly_returns_are_portfret_and_bchret():
+    x = np.full(config.N_ASSETS, 1.0 / config.N_ASSETS)
+    monthly = engine.monthly_returns(x, {"CPI": 0.5, "USD": 0.5})
+    inputs = engine.load_inputs()
+    table = inputs["bch_table"]
+    np.testing.assert_allclose(monthly["Portfolio"].values, inputs["r_table"].values @ x)
+    np.testing.assert_allclose(
+        monthly["Benchmark"].values, 0.5 * table["CPI"].values + 0.5 * table["USD"].values
+    )
+    assert list(monthly.columns) == ["Portfolio", "Benchmark"]
+    assert len(monthly) == config.T_MONTHS

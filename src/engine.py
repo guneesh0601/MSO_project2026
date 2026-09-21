@@ -207,16 +207,21 @@ def compare_portfolios(current, proposed) -> pd.DataFrame:
     })
 
 
-def portfolio_history(x, benchmark) -> pd.DataFrame:
-    """Growth of 100 invested at the start of the 36-month window, for the
-    portfolio and for the benchmark (a name or a {name: weight} blend).
-    Historical and in-sample."""
+def monthly_returns(x, benchmark) -> pd.DataFrame:
+    """The two monthly series the risk measures compare: PortfRet_t (the
+    portfolio's return, as a fraction) and BchRet_t (the benchmark's, a name
+    or a {name: weight} blend). Historical and in-sample."""
     inputs = load_inputs()
-    portfolio = inputs["r_table"].values @ np.asarray(x, dtype=float)
     return pd.DataFrame(
         {
-            "Portfolio": 100.0 * np.cumprod(1.0 + portfolio),
-            "Benchmark": 100.0 * np.cumprod(1.0 + benchmark_series(benchmark)),
+            "Portfolio": inputs["r_table"].values @ np.asarray(x, dtype=float),
+            "Benchmark": benchmark_series(benchmark),
         },
         index=inputs["r_table"].index,
     )
+
+
+def portfolio_history(x, benchmark) -> pd.DataFrame:
+    """Growth of 100 invested at the start of the 36-month window: the two
+    monthly series compounded. Used for the 'total over window' figures."""
+    return 100.0 * (1.0 + monthly_returns(x, benchmark)).cumprod()
