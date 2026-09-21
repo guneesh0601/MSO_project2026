@@ -56,14 +56,14 @@ The UI never mutates `config` globals. `gamma`, `K` and `lambda_decay` are passe
 - Collapsed "Analyst settings": gamma (tracking penalty), lambda (recency decay), K (frontier points).
 
 **Main area — tabs:**
-1. **Risk & return options.** Efficient frontier chart (risk vs expected annual return, one line per risk
-   measure, hover tooltips). The selected frontier point is highlighted on the chart. Also a stacked-area
-   chart of asset weights across the frontier ("how the mix changes as you take more risk"). Risk is shown
-   as annualized risk = sqrt(12 x monthly risk score), a monotonic display transform that puts the three
-   measures on one axis.
+1. **Frontier portfolios.** A table of the K + 2 portfolios on the selected risk measure's frontier, one row per
+   point (Step 1: minimum risk, k = 1 ... K, Step 2: maximum return) with its ExpRet (% per year), annualised risk
+   (sqrt(12 x monthly risk score), a display transform) and asset-class weights (whole percentages). The recommended
+   row is marked. This replaced an earlier frontier chart and a stacked-area mix chart, at the user's request.
 
-   The risk-measure radio and the "Risk appetite" slider (1 = most conservative ... highest = most growth)
-   that choose the frontier point sit **above the tabs**, because tabs 2-4 all depend on them.
+   The risk-measure radio sits **above the tabs**, because tabs 2-4 all depend on which measure's frontier
+   is recommended. The recommended portfolio is the **middle point** of that frontier. (A "Risk appetite"
+   slider that chose the point was built first and then removed at the user's request.)
 2. **Recommended portfolio.** For the selected point and risk measure: allocation donut, weights table
    (rounded to 1%), expected return and risk figures, and constraint-usage bars (equity / foreign-currency /
    illiquid share vs the customer's caps). Download buttons for the portfolio and the full frontier as CSV.
