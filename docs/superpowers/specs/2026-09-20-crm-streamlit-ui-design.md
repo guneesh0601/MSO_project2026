@@ -64,8 +64,8 @@ The UI never mutates `config` globals. `gamma`, `K` and `lambda_decay` are passe
    is recommended. The recommended portfolio is the **middle point** of that frontier. (A "Risk appetite"
    slider that chose the point was built first and then removed at the user's request.)
 2. **Recommended portfolio.** For the selected point and risk measure: allocation donut, weights table
-   (rounded to 1%), expected return and risk figures, and constraint-usage bars (equity / foreign-currency /
-   illiquid share vs the customer's caps). Download buttons for the portfolio and the full frontier as CSV.
+   (rounded to 1%), expected return and risk figures, and limit-usage bars (foreign-currency and
+   illiquid share vs the customer's limits; there is no equity limit and no equity-share figure). Download buttons for the portfolio and the full frontier as CSV.
 3. **History vs benchmark.** Cumulative growth of the recommended portfolio vs the chosen benchmark over the
    36-month window, captioned as historical/in-sample, not a forecast.
 4. **Compare with current portfolio (optional).** CRM enters current weights (must sum to 100%; validated).

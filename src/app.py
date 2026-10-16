@@ -27,7 +27,7 @@ for _name, _module in list(sys.modules.items()):
     _path = getattr(_module, "__file__", None)
     if (_path and _name != "__main__" and os.path.abspath(_path) != os.path.abspath(__file__)
             and os.path.dirname(os.path.abspath(_path)) == _SRC_DIR):
-        del sys.modules[_name]
+        sys.modules.pop(_name, None)   # pop, not del: another session may have removed it already
 
 import config
 import engine
@@ -323,10 +323,9 @@ with tab_portfolio:
         )
 
     with right:
-        m_return, m_risk, m_equity = st.columns(3)
+        m_return, m_risk = st.columns(2)
         m_return.metric("Expected annual return", f"{row['achieved_return']:.2%}")
         m_risk.metric("Annualized risk", f"{engine.annualized_risk(row['risk']):.2%}")
-        m_equity.metric("Equity share", f"{engine.constraint_usage(rounded)['equity']:.0%}")
         st.dataframe(
             held.assign(weight=held["weight"].map(lambda w: f"{w:.0f}%"))
                 .rename(columns={"asset": "Asset class", "weight": "Weight"}),

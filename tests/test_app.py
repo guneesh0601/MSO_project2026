@@ -302,11 +302,6 @@ def test_higher_risk_level_recommends_a_higher_expected_return():
     assert expected_return("low") < expected_return("medium") < expected_return("high")
 
 
-def test_recommended_portfolio_shows_the_equity_share():
-    at = _run()
-    assert _metric(at, "Equity share").endswith("%")
-
-
 def test_frontier_caption_explains_the_risk_level_pick():
     at = _run()
     assert any("risk level" in c.value for c in at.caption)
@@ -329,3 +324,34 @@ def test_extreme_limits_still_give_a_frontier():
     assert not at.exception
     assert not at.error
     assert len(_frontier_table(at)) == config.K_FRONTIER_POINTS + 2
+
+
+def test_equity_share_is_not_shown():
+    at = _run()
+    assert not at.exception
+    assert not [m for m in at.metric if "equity" in m.label.lower()]
+
+
+def test_app_survives_a_module_removed_by_another_thread():
+    """Streamlit runs each session in its own thread. If another run (or the file watcher)
+    removes a project module between this run's snapshot of sys.modules and its cleanup,
+    the app must not crash with a KeyError. Simulated deterministically: reading one
+    module's __file__ removes a later module from sys.modules."""
+    import types
+    from unittest import mock
+
+    src = os.path.join(ROOT, "src")
+
+    class Racer(types.ModuleType):
+        @property
+        def __file__(self):
+            sys.modules.pop("zz_race_victim", None)          # the "other thread" strikes
+            return os.path.join(src, "zz_race_racer.py")
+
+    victim = types.ModuleType("zz_race_victim")
+    victim.__file__ = os.path.join(src, "zz_race_victim.py")
+    racer = Racer("zz_race_racer")
+
+    with mock.patch.dict(sys.modules, {"zz_race_racer": racer, "zz_race_victim": victim}):
+        at = _run()
+    assert not at.exception
