@@ -6,3 +6,6 @@ __pycache__/
 # Its own terms restrict use to research/teaching/private study, so it is
 # intentionally not committed to this repository.
 *.pdf
+
+# Local Streamlit secrets (SMTP password etc.) must never be committed
+.streamlit/secrets.toml

@@ -29,12 +29,17 @@ for _name, _module in list(sys.modules.items()):
             and os.path.dirname(os.path.abspath(_path)) == _SRC_DIR):
         sys.modules.pop(_name, None)   # pop, not del: another session may have removed it already
 
+import auth
 import config
 import engine
 import frontier_builder
 import ui_labels as L
 
 st.set_page_config(page_title="Opti-Money CRM", layout="wide")
+
+# Email + one-time-code sign-in for the hosted demo (AUTH_DISABLED=1 skips it).
+if not auth.require_login():
+    st.stop()
 
 DEFAULT_RISK_LEVEL = "medium"
 DEFAULT_BENCHMARK = "CPI"
